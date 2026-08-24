@@ -60,6 +60,30 @@ export function makeTasks() {
       },
     },
     {
+      id: 'duck', text: 'The duck has got out. Barrow it home to the pond',
+      onEvent(type, e) {
+        return type === 'item-home' && e.kind === 'duck';
+      },
+    },
+    {
+      id: 'washing',
+      textFn: (t) => `Peg the washing back on the line (${t.state.n}/3)`,
+      state: { n: 1 },
+      onEvent(type, e, game, t) {
+        if (type === 'item-home' && e.kind === 'sheet') t.state.n = game.world.pegged;
+        return t.state.n >= 3;
+      },
+    },
+    {
+      id: 'seedlings',
+      textFn: (t) => `Barrow the seedlings to the veg patch (${t.state.n}/3)`,
+      state: { n: 0 },
+      onEvent(type, e, game, t) {
+        if (type === 'item-home' && e.kind === 'pot') t.state.n++;
+        return t.state.n >= 3;
+      },
+    },
+    {
       id: 'sneak', text: 'Sneak past the dog without waking it',
       state: { inside: false, spoiled: false },
       check(game, t) {
@@ -83,6 +107,25 @@ export function makeTasks() {
         const bl = game.world.regions.blanket;
         const allSat = game.children.every((k) => k.settledAt === 'blanket');
         return allSat && dist(game.player.x, game.player.y, bl.x, bl.y) < 190;
+      },
+    },
+    // Optional mischief. None of it gates the picnic; it is just there to be
+    // found, and it is what carries over between visits to the garden.
+    {
+      id: 'gnome', text: 'Take the gnome for a ride', extra: true,
+      onEvent: (type) => type === 'gnome-lifted',
+    },
+    {
+      id: 'wake', text: 'Wake the dog on purpose', extra: true,
+      onEvent: (type) => type === 'dog-woke',
+    },
+    {
+      id: 'muddy', text: 'Get the barrow properly muddy', extra: true,
+      state: { t: 0 },
+      check(game, t, dt) {
+        const p = game.player;
+        t.state.t = p.surface.type === 'mud' && p.v > 70 ? t.state.t + dt : 0;
+        return t.state.t > 1.6;
       },
     },
   ];
@@ -121,7 +164,7 @@ export function updateTasks(game, dt) {
     if (t.check && t.check(game, t, dt)) complete(game, t);
   }
   const finale = list.find((t) => t.finale);
-  if (!finale.revealed && list.every((t) => t.finale || t.done)) {
+  if (!finale.revealed && list.every((t) => t.finale || t.extra || t.done)) {
     finale.revealed = true;
     game.events.emit('task-reveal', { task: finale });
   }

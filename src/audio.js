@@ -130,36 +130,55 @@ function bell(au, freq, when, gain = 0.085) {
   }
 }
 
-function scheduleBar(au, when, bar) {
+// Where you are colours the music: the orchard end sits lower and broods a
+// little, the pond is airier, the house end is busiest.
+export const MOODS = {
+  lawn: { shift: 1, bell: 1, rest: 0.30 },
+  orchard: { shift: 0.75, bell: 0.6, rest: 0.45 },
+  pond: { shift: 1.5, bell: 1.4, rest: 0.36 },
+  house: { shift: 1, bell: 1.2, rest: 0.24 },
+};
+
+function scheduleBar(au, when, bar, mood) {
   const chord = PROG[bar % PROG.length];
-  pad(au, chord.pad, when, BAR * 1.02);
-  bassNote(au, chord.bass, when, BAR * 0.85);
+  pad(au, chord.pad.map((f) => f * mood.shift), when, BAR * 1.02);
+  bassNote(au, chord.bass * mood.shift, when, BAR * 0.85);
 
   // melody: a short phrase, a single held note, or nothing at all
   const roll = Math.random();
-  if (roll < 0.3) return;                       // let the birds have a bar
+  if (roll < mood.rest) return;                 // let the birds have a bar
   const beat = BAR / 4;
-  if (roll < 0.62) {
-    bell(au, pick(MELODY.slice(2, 7)), when + beat * (Math.random() < 0.5 ? 0 : 2), 0.075);
+  const g = 0.062 * mood.bell;
+  if (roll < mood.rest + 0.32) {
+    bell(au, pick(MELODY.slice(2, 7)) * mood.shift, when + beat * (Math.random() < 0.5 ? 0 : 2), g * 1.2);
   } else {
     const start = Math.random() < 0.5 ? 0 : 1;
     const n = 2 + Math.floor(Math.random() * 3);
     let idx = 2 + Math.floor(Math.random() * 4);
     for (let i = 0; i < n; i++) {
       idx = clamp(idx + (Math.floor(Math.random() * 3) - 1), 0, MELODY.length - 1);
-      bell(au, MELODY[idx], when + beat * (start + i * 0.5) + rand(-0.02, 0.02), 0.062);
+      bell(au, MELODY[idx] * mood.shift, when + beat * (start + i * 0.5) + rand(-0.02, 0.02), g);
     }
   }
 }
 
-export function updateMusic(au) {
+export function moodFor(game) {
+  const p = game.player;
+  if (!p) return MOODS.lawn;
+  if (p.x > 2200 && p.y < 900) return MOODS.orchard;
+  if (game.world && Math.hypot(p.x - game.world.pond.x, p.y - game.world.pond.y) < 420) return MOODS.pond;
+  if (p.x < 760 && p.y < 700) return MOODS.house;
+  return MOODS.lawn;
+}
+
+export function updateMusic(au, mood = MOODS.lawn) {
   if (!au.ctx || !au.music) return;
   const now = au.ctx.currentTime;
   // if the tab was hidden the loop stalls; pick up from now rather than
   // dumping every missed bar into the graph at once
   if (au.nextBar < now - BAR) au.nextBar = now + 0.1;
   while (au.nextBar < now + 1.0) {
-    scheduleBar(au, au.nextBar, au.bar++);
+    scheduleBar(au, au.nextBar, au.bar++, mood);
     au.nextBar += BAR;
   }
 }
@@ -269,7 +288,7 @@ export function updateAudio(game, dt) {
   const au = game.audio;
   if (!au.ctx) return;
   const t = au.ctx.currentTime;
-  updateMusic(au);
+  updateMusic(au, moodFor(game));
   // pull the music back while the barrow is really shifting, so the wheel and
   // the giggling have room, and swell it again for the picnic
   const busy = clamp(game.player.v / 190, 0, 1);
@@ -305,6 +324,19 @@ export function updateAudio(game, dt) {
   const s = game.world.sprinkler;
   const sd = Math.hypot(s.x - p.x, s.y - p.y);
   smooth(au.loops.hiss, sd < 320 ? (1 - sd / 320) * 0.05 : 0);
+
+  // footsteps, paced by the walk cycle and coloured by what is underfoot
+  const surf = p.surface.type;
+  au.stepCd = (au.stepCd || 0) - dt * (p.v > 4 ? p.v / 60 : 0);
+  if (p.v > 12 && au.stepCd <= 0) {
+    au.stepCd = 1;
+    const hard = surf === 'gravel' || surf === 'patio';
+    noiseBurst(au, hard ? 0.05 : 0.07, {
+      freq: hard ? 2100 : 620,
+      gain: (hard ? 0.035 : 0.026) * clamp(p.v / 150, 0.35, 1),
+    });
+    if (surf === 'mud') blip(au, rand(150, 200), 0.08, { type: 'sine', slideTo: 90, gain: 0.03 });
+  }
 
   au.rattleCd -= dt;
   if (Math.abs(p.roll) > 0.33 && p.v > 40 && au.rattleCd <= 0) {

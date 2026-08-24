@@ -44,8 +44,9 @@ export function updateParticles(ps, dt) {
     p.age += dt;
     if (p.age >= p.life) { list.splice(i, 1); continue; }
     if (p.kind === 'butterfly') {
-      p.vx += rand(-60, 60) * dt;
-      p.vy += rand(-60, 60) * dt;
+      const wander = Math.sqrt(dt);   // random walk, see GRAVEL_JIT in player.js
+      p.vx += rand(-8, 8) * wander;
+      p.vy += rand(-8, 8) * wander;
       const damp = 1 - expDamp(1.2, dt);
       p.vx *= damp; p.vy *= damp;
     }

@@ -1,6 +1,7 @@
 import { C } from './palette.js';
 import { TAU, rand } from './utils.js';
 import { settleOnGround } from './physics.js';
+import { makeItem } from './items.js';
 import * as S from './sprites.js';
 
 const H2 = S.hash;
@@ -37,8 +38,8 @@ export function makeWorld() {
   props.push({ sortY: H - 4, draw: (ctx, g) => S.drawHedge(ctx, { x: -20, y: H - 4, w: W + 40, ht: 84, seed: 11 }, g.time) });
   for (let y = 190; y <= H; y += 96) {
     const yy = y;
-    props.push({ sortY: yy, draw: (ctx, g) => S.drawHedge(ctx, { x: -14, y: yy, w: 80, ht: 100, seed: yy }, g.time) });
-    props.push({ sortY: yy, draw: (ctx, g) => S.drawHedge(ctx, { x: W - 66, y: yy, w: 80, ht: 100, seed: yy + 5 }, g.time) });
+    props.push({ sortY: yy, cx: 26, cy: yy - 50, cr: 110, draw: (ctx, g) => S.drawHedge(ctx, { x: -14, y: yy, w: 80, ht: 100, seed: yy }, g.time) });
+    props.push({ sortY: yy, cx: W - 26, cy: yy - 50, cr: 110, draw: (ctx, g) => S.drawHedge(ctx, { x: W - 66, y: yy, w: 80, ht: 100, seed: yy + 5 }, g.time) });
   }
   props.push({ sortY: 742, draw: (ctx) => S.drawGate(ctx, W - 68, 738) });
 
@@ -60,8 +61,6 @@ export function makeWorld() {
   // tea table on the patio
   solidC(232, 508, 30);
   props.push({ sortY: 510, draw: (ctx) => S.drawTable(ctx, 232, 508) });
-  solidC(596, 556, 8);
-  props.push({ sortY: 556, draw: (ctx) => S.drawGnome(ctx, 596, 554) });
 
   // ---- path network: gentle curves that actually join the places up
   const mainPath = [
@@ -91,10 +90,9 @@ export function makeWorld() {
     const a = (i / 12) * TAU;
     solidC(pond.x + Math.cos(a) * pond.rx * 0.98, pond.y + Math.sin(a) * pond.ry * 0.98, 40);
   }
-  const duck = { x: pond.x - 30, y: pond.y - 10, flip: 1, t: 0 };
   for (const [rx, ry, n, sd] of [[-190, 40, 5, 2], [150, -70, 4, 8], [-60, -120, 5, 14], [190, 30, 4, 22]]) {
     const px = pond.x + rx, py = pond.y + ry;
-    props.push({ sortY: py, draw: (ctx, g) => S.drawReeds(ctx, px, py, n, sd, g.time) });
+    props.push({ sortY: py, cx: px, cy: py - 24, cr: 56, draw: (ctx, g) => S.drawReeds(ctx, px, py, n, sd, g.time) });
   }
 
   // ---- greenhouse, veg patch, compost, crate
@@ -123,16 +121,22 @@ export function makeWorld() {
   ];
   for (const [tx, ty, ts] of trees) {
     solidC(tx, ty - 4, 14 * ts);
-    props.push({ sortY: ty, draw: (ctx, g) => S.drawTree(ctx, tx, ty, ts, g.time) });
+    props.push({ sortY: ty, cx: tx, cy: ty - 50 * ts, cr: 80 * ts, draw: (ctx, g) => S.drawTree(ctx, tx, ty, ts, g.time) });
   }
   // rope swing under the picnic tree
-  props.push({ sortY: 1290 - 40, draw: (ctx, g) => S.drawSwing(ctx, 700, 1290, g.time) });
+  props.push({
+    sortY: 1250, cx: 700, cy: 1230, cr: 90,
+    draw: (ctx, g) => {
+      const rider = g.children.find((k) => k.settledAt === 'swing');
+      S.drawSwing(ctx, 700, 1290, g.time, rider ? Math.sin(rider.swingT || 0) : null);
+    },
+  });
 
   // ---- washing line on the north lawn
-  const washing = { x1: 812, y: 388, x2: 1160 };
+  const washing = { x1: 812, y: 388, x2: 1160, slots: 3 };
   solidC(washing.x1, washing.y, 7);
   solidC(washing.x2, washing.y, 7);
-  props.push({ sortY: washing.y, draw: (ctx, g) => S.drawWashing(ctx, washing, g.time) });
+  props.push({ sortY: washing.y, draw: (ctx, g) => S.drawWashing(ctx, washing, g.time, g.world.pegged) });
 
   // ---- sprinkler on the north lawn
   const sprinkler = { x: 1284, y: 560, reach: 178, angle: 0 };
@@ -156,7 +160,7 @@ export function makeWorld() {
   ];
   for (const [sx, sy, ss] of shrubs) {
     solidC(sx, sy - 6, 17 * ss);
-    props.push({ sortY: sy, draw: (ctx, g) => S.drawShrub(ctx, sx, sy, ss, sx + sy, g.time) });
+    props.push({ sortY: sy, cx: sx, cy: sy - 20 * ss, cr: 50 * ss, draw: (ctx, g) => S.drawShrub(ctx, sx, sy, ss, sx + sy, g.time) });
   }
 
   // ---- herbaceous borders, hard against the hedges
@@ -178,9 +182,9 @@ export function makeWorld() {
       const cx = x + (H2(j * 7) - 0.5) * 20;
       if (j % 3 === 0) {
         const h = 40 + H2(j) * 34;
-        props.push({ sortY: cy, draw: (ctx, g) => S.drawSpire(ctx, cx, cy, h, col, g.time, j) });
+        props.push({ sortY: cy, cx, cy: cy - h / 2, cr: h, draw: (ctx, g) => S.drawSpire(ctx, cx, cy, h, col, g.time, j) });
       } else {
-        props.push({ sortY: cy, draw: (ctx, g) => S.drawFlowerClump(ctx, cx, cy, col, g.time, 2 + (j % 3)) });
+        props.push({ sortY: cy, cx, cy: cy - 20, cr: 40, draw: (ctx, g) => S.drawFlowerClump(ctx, cx, cy, col, g.time, 2 + (j % 3)) });
       }
     }
   }
@@ -188,7 +192,7 @@ export function makeWorld() {
     const a = (i / 9) * TAU;
     const cx = 196 + Math.cos(a) * 76, cy = 900 + Math.sin(a) * 150;
     const col = flowerCols[i % flowerCols.length];
-    props.push({ sortY: cy, draw: (ctx, g) => S.drawFlowerClump(ctx, cx, cy, col, g.time, 3) });
+    props.push({ sortY: cy, cx, cy: cy - 20, cr: 40, draw: (ctx, g) => S.drawFlowerClump(ctx, cx, cy, col, g.time, 3) });
   }
 
   // ---- windfall apples under the orchard trees
@@ -202,6 +206,14 @@ export function makeWorld() {
       apples.push(settleOnGround({ x: ax + Math.cos(a) * d, y: ay + 60 + Math.sin(a) * d * 0.55 }, 6, bounds));
     }
   }
+
+  // ---- loose things that belong somewhere else: the point of the barrow
+  const items = [
+    makeItem('duck', 1648, 486),                       // got out of the pond
+    makeItem('sheet', 902, 470), makeItem('sheet', 1058, 502),   // blown off the line
+    makeItem('pot', 2330, 1186), makeItem('pot', 2368, 1198), makeItem('pot', 2298, 1206),
+    makeItem('gnome', 596, 554, { settledAt: 'patio', state: 'settled' }),
+  ];
 
   const molehills = [
     [900, 640], [1180, 980], [1560, 700], [1420, 480],
@@ -222,6 +234,14 @@ export function makeWorld() {
     blanket,
     crate: { x: 2196, y: 1214, r: 78 },
     dogZone: { x: 1592, y: 620, w: 320, h: 250 },
+    // where the loose things belong, generous enough to tip from the bank
+    pond: { x: pond.x, y: pond.y, r: 236 },
+    veg: { x: 2030, y: 1226, r: 156 },
+    line: { x: (washing.x1 + washing.x2) / 2, y: washing.y + 20, r: 150 },
+    patio: { x: 392, y: 470, r: 200 },
+    // spots a child will make themselves at home in
+    swing: { x: 700, y: 1268, r: 74 },
+    bench: { x: bench.x, y: bench.y - 6, r: 66 },
   };
 
   // scattered lawn detail, generated once
@@ -234,8 +254,8 @@ export function makeWorld() {
 
   return {
     W, H, solids, props, surfaces, regions,
-    house, patio, beds, veg, pond, pool, sprinkler, washing, duck, paths, daisies,
-    molehills, apples,
+    house, patio, beds, veg, pond, pool, sprinkler, washing, paths, daisies,
+    molehills, apples, items, pegged: 1, bench, bath,
     dogHome: { x: 1806, y: 762 },
     granSpots: [{ x: 1996, y: 1268 }, { x: 2100, y: 1180 }, { x: 2020, y: 1330 }],
     parentStart: { x: 404, y: 500 },
@@ -245,11 +265,6 @@ export function makeWorld() {
 
 export function updateWorld(world, game, dt) {
   world.sprinkler.angle += dt * 0.7;
-  const d = world.duck;
-  d.t += dt;
-  d.x += Math.cos(d.t * 0.23) * dt * 9;
-  d.y += Math.sin(d.t * 0.31) * dt * 5;
-  d.flip = Math.cos(d.t * 0.23) < 0 ? -1 : 1;
   for (const m of world.molehills) m.cooldown = Math.max(0, m.cooldown - dt);
 }
 

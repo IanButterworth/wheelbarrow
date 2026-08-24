@@ -40,7 +40,7 @@ export function updateChild(kid, game, dt) {
 
   if (kid.state === 'wander') {
     kid.beam = false;
-    kid.armsUp = false;
+    kid.armsUp = !!kid.bubble;   // arms up while they are asking for a ride
     if (kid.moving) {
       const d = dist(kid.x, kid.y, kid.target.x, kid.target.y);
       // give up after a while: the target may sit inside a bush or the pool,
@@ -117,6 +117,21 @@ export function updateChild(kid, game, dt) {
       game.particles.burst('splash', kid.x + rand(-10, 10), kid.y - 6, 4);
       kid.bubble = { text: 'Splash!', t: 1.4 };
       kid.bubbleCd = rand(4, 9);
+    }
+    if (kid.settledAt === 'swing') {
+      // swings gently, and the swing prop follows the child rather than the reverse
+      kid.swingT = (kid.swingT || 0) + dt * 1.9;
+      const sw = game.world.regions.swing;
+      kid.x = sw.x + Math.sin(kid.swingT) * 34;
+      kid.y = sw.y + Math.abs(Math.cos(kid.swingT)) * 5;
+      if (kid.bubbleCd <= 0) {
+        kid.bubble = { text: pick(kid.lines.ride), t: 1.6 };
+        kid.bubbleCd = rand(5, 10);
+      }
+    }
+    if (kid.settledAt === 'bench' && kid.bubbleCd <= 0) {
+      kid.bubble = { text: 'Just resting.', t: 1.8 };
+      kid.bubbleCd = rand(8, 16);
     }
   }
 }

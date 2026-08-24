@@ -2,12 +2,40 @@ import { clamp, lerp, expDamp, TAU } from './utils.js';
 import { C } from './palette.js';
 import { FONT } from './sprites.js';
 import { taskText } from './tasks.js';
+import { KEY_LABELS, keyLabel, formatTime } from './save.js';
 
 export function makeUI() {
   return {
     listOpen: false, listSlide: 0, autoT: 4,
     banner: null, hintT: 16, titleT: 0, endT: 0, touchFade: 0,
+    menuRects: [], rebinding: null,
   };
+}
+
+// Menu rows are laid out and hit-tested from the same list, so a button can
+// never drift away from the thing it activates.
+function menuButton(ui, ctx, label, x, y, w, h, opts = {}) {
+  const hot = opts.hot;
+  ctx.fillStyle = hot ? 'rgba(120,150,100,0.9)' : 'rgba(253,251,244,0.92)';
+  ctx.beginPath();
+  ctx.roundRect(x - w / 2, y - h / 2, w, h, 8);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(74,67,54,0.28)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = hot ? C.white : C.ink;
+  ctx.font = `${opts.size || 15}px ${FONT}`;
+  ctx.textAlign = opts.align || 'center';
+  ctx.fillText(label, opts.align === 'left' ? x - w / 2 + 14 : x, y + 5);
+  ctx.textAlign = 'left';
+  if (opts.id) ui.menuRects.push({ id: opts.id, x, y, w, h });
+}
+
+export function menuHit(ui, cx, cy) {
+  for (const r of ui.menuRects) {
+    if (Math.abs(cx - r.x) <= r.w / 2 && Math.abs(cy - r.y) <= r.h / 2) return r.id;
+  }
+  return null;
 }
 
 export function attachUI(game) {
@@ -63,10 +91,12 @@ function paper(ctx, x, y, w, h) {
 
 export function drawTodoList(ctx, game, w, h) {
   const ui = game.ui;
-  const list = game.tasks.list.filter((t) => t.revealed);
+  const all = game.tasks.list.filter((t) => t.revealed);
+  const list = all.filter((t) => !t.extra);
+  const extras = all.filter((t) => t.extra);
   ctx.font = `13px ${FONT}`;
-  const pw = Math.max(252, ...list.map((t) => ctx.measureText(taskText(t)).width + 52));
-  const ph = 46 + list.length * 26;
+  const pw = Math.max(252, ...all.map((t) => ctx.measureText(taskText(t)).width + 52));
+  const ph = 46 + list.length * 26 + (extras.length ? 22 + extras.length * 26 : 0);
   const x = 16 - (1 - ui.listSlide) * (pw + 80);
   const y = 16;
   paper(ctx, x, y, pw, ph);
@@ -77,8 +107,7 @@ export function drawTodoList(ctx, game, w, h) {
   ctx.font = `bold 17px ${FONT}`;
   ctx.fillText('To do:', 16, 28);
   ctx.font = `13px ${FONT}`;
-  list.forEach((t, i) => {
-    const ty = 52 + i * 26;
+  const line = (t, ty, i) => {
     const text = taskText(t);
     const wob = Math.sin(i * 2.7) * 1.4;
     ctx.fillStyle = t.done ? 'rgba(74,67,54,0.45)' : C.ink;
@@ -86,26 +115,34 @@ export function drawTodoList(ctx, game, w, h) {
     ctx.strokeStyle = 'rgba(74,67,54,0.6)';
     ctx.lineWidth = 1.4;
     ctx.strokeRect(14, ty - 11 + wob, 12, 12);
-    if (t.done) {
-      const prog = t.tickT < 0 ? 1 : clamp(t.tickT * 3, 0, 1);
-      const tw = ctx.measureText(text).width;
-      ctx.strokeStyle = 'rgba(74,67,54,0.55)';
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.moveTo(32, ty - 4 + wob);
-      ctx.lineTo(32 + (tw + 4) * prog, ty - 4.5 + wob);
-      ctx.stroke();
-      ctx.strokeStyle = C.tick;
-      ctx.lineWidth = 2.6;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(16, ty - 5 + wob);
-      const p2 = clamp(prog * 2, 0, 1), p3 = clamp(prog * 2 - 1, 0, 1);
-      ctx.lineTo(16 + 4 * p2, ty - 5 + 4 * p2 + wob);
-      if (p3 > 0) ctx.lineTo(20 + 8 * p3, ty - 1 - 10 * p3 + wob);
-      ctx.stroke();
-    }
-  });
+    if (!t.done) return;
+    const prog = t.tickT < 0 ? 1 : clamp(t.tickT * 3, 0, 1);
+    const tw = ctx.measureText(text).width;
+    ctx.strokeStyle = 'rgba(74,67,54,0.55)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(32, ty - 4 + wob);
+    ctx.lineTo(32 + (tw + 4) * prog, ty - 4.5 + wob);
+    ctx.stroke();
+    ctx.strokeStyle = C.tick;
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(16, ty - 5 + wob);
+    const p2 = clamp(prog * 2, 0, 1), p3 = clamp(prog * 2 - 1, 0, 1);
+    ctx.lineTo(16 + 4 * p2, ty - 5 + 4 * p2 + wob);
+    if (p3 > 0) ctx.lineTo(20 + 8 * p3, ty - 1 - 10 * p3 + wob);
+    ctx.stroke();
+  };
+  list.forEach((t, i) => line(t, 52 + i * 26, i));
+  if (extras.length) {
+    const base = 52 + list.length * 26;
+    ctx.fillStyle = 'rgba(74,67,54,0.5)';
+    ctx.font = `12px ${FONT}`;
+    ctx.fillText('if you have a minute:', 16, base + 8);
+    ctx.font = `13px ${FONT}`;
+    extras.forEach((t, i) => line(t, base + 30 + i * 26, list.length + i));
+  }
   ctx.restore();
   // collapsed tab hint
   if (ui.listSlide < 0.5 && ui.touchFade < 0.5) {
@@ -114,8 +151,9 @@ export function drawTodoList(ctx, game, w, h) {
     ctx.fillStyle = C.white;
     ctx.font = `12px ${FONT}`;
     ctx.textAlign = 'center';
-    const done = game.tasks.list.filter((t) => t.done).length;
-    ctx.fillText(`Tab · to-do ${done}/${game.tasks.list.length}`, 74, 34);
+    const main = game.tasks.list.filter((t) => !t.extra);
+    const done = main.filter((t) => t.done).length;
+    ctx.fillText(`Tab · to-do ${done}/${main.length}`, 74, 34);
     ctx.textAlign = 'left';
   }
 }
@@ -286,6 +324,67 @@ function inkBarrow(ctx, s) {
   ctx.restore();
 }
 
+export function drawPause(ctx, game, w, h) {
+  const ui = game.ui;
+  ui.menuRects = [];
+  ctx.fillStyle = 'rgba(40, 54, 34, 0.5)';
+  ctx.fillRect(0, 0, w, h);
+
+  const binds = game.input.binds;
+  const rows = Object.keys(KEY_LABELS);
+  const NW = 430, NH = 252 + rows.length * 30;   // room for the two buttons below the rows
+  const s = Math.min(1, (w - 60) / NW, (h - 40) / NH);
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(s, s);
+
+  ctx.fillStyle = 'rgba(55, 70, 45, 0.25)';
+  ctx.beginPath(); ctx.roundRect(-NW / 2 + 5, -NH / 2 + 7, NW, NH, 8); ctx.fill();
+  ctx.fillStyle = C.paper;
+  ctx.beginPath(); ctx.roundRect(-NW / 2, -NH / 2, NW, NH, 8); ctx.fill();
+
+  ctx.fillStyle = C.titleInk;
+  ctx.font = `bold 26px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.fillText('A quiet moment', 0, -NH / 2 + 40);
+  ctx.textAlign = 'left';
+
+  let y = -NH / 2 + 74;
+  menuButton(ui, ctx, `Gentler motion: ${game.opts.reducedMotion ? 'on' : 'off'}`, 0, y, 300, 28, { id: 'motion' });
+  y += 34;
+  menuButton(ui, ctx, `Sound: ${game.audio.muted ? 'off' : 'on'}`, 0, y, 300, 28, { id: 'sound' });
+  y += 40;
+
+  ctx.fillStyle = 'rgba(74,67,54,0.55)';
+  ctx.font = `12px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.fillText(ui.rebinding ? 'press a key…' : 'controls (click to change)', 0, y - 6);
+  ctx.textAlign = 'left';
+  y += 12;
+
+  for (const name of rows) {
+    ctx.fillStyle = C.ink;
+    ctx.font = `13px ${FONT}`;
+    ctx.fillText(KEY_LABELS[name], -NW / 2 + 26, y + 5);
+    const label = ui.rebinding === name ? '…' : binds[name].map(keyLabel).join(' / ');
+    menuButton(ui, ctx, label, NW / 2 - 110, y, 170, 24,
+      { id: `bind:${name}`, size: 12, hot: ui.rebinding === name });
+    y += 30;
+  }
+
+  y += 12;
+  menuButton(ui, ctx, 'Resume', -78, y, 140, 30, { id: 'resume' });
+  menuButton(ui, ctx, 'Start again', 78, y, 140, 30, { id: 'restart' });
+
+  // menu rects were built in the scaled/translated space; convert to screen
+  for (const r of ui.menuRects) {
+    r.x = w / 2 + r.x * s; r.y = h / 2 + r.y * s;
+    r.w *= s; r.h *= s;
+  }
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+
 export function drawTitle(ctx, game, w, h) {
   const t = game.ui.titleT;
   // vignette rather than a flat wash, so the garden keeps its colour
@@ -335,8 +434,20 @@ export function drawTitle(ctx, game, w, h) {
   ctx.font = `14px ${FONT}`;
   ctx.fillText(msg, 0, 132);
   ctx.globalAlpha = 1;
-
   ctx.restore();
+
+  // what the garden remembers about you, pencilled along the bottom
+  const sv = game.save;
+  if (sv.finished > 0) {
+    const found = Object.keys(sv.extras).length;
+    const bits = [`${sv.finished} afternoon${sv.finished === 1 ? '' : 's'} in the garden`];
+    if (sv.bestMs) bits.push(`best ${formatTime(sv.bestMs)}`);
+    bits.push(`${found}/3 extras found`);
+    ctx.fillStyle = 'rgba(253, 251, 244, 0.85)';
+    ctx.font = `13px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillText(bits.join('  ·  '), w / 2, h - 26);
+  }
   ctx.textAlign = 'left';
 }
 

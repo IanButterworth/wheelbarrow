@@ -8,15 +8,19 @@ import { makeChild, updateChild } from './child.js';
 import { makeDog, updateDog, wakeDog } from './dog.js';
 import { makeGran, updateGran, granTut } from './grandparent.js';
 import { makeParticles, updateParticles, drawParticles } from './particles.js';
+import { updateItem, drawItem } from './items.js';
 import { makeTasks, attachTasks, updateTasks } from './tasks.js';
-import { makeUI, attachUI, updateUI, drawTodoList, drawPrompt, drawBanner, drawHints, drawTouchControls, drawTitle, drawEnding } from './ui.js';
+import { makeUI, attachUI, updateUI, drawTodoList, drawPrompt, drawBanner, drawHints, drawTouchControls, drawTitle, drawEnding, drawPause, menuHit } from './ui.js';
 import { makeAudio, ensureAudio, toggleMute, attachAudio, updateAudio } from './audio.js';
+import { loadSave, writeSave, keyBinds } from './save.js';
 import * as S from './sprites.js';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-const input = makeInput(canvas);
+const save = loadSave();
+const input = makeInput(canvas, keyBinds(save));
 const audio = makeAudio();
+audio.muted = !!save.opts.muted;
 
 function newGame() {
   const world = makeWorld();
@@ -40,6 +44,8 @@ function newGame() {
     crateApples: 0,
     prompt: null,
     butterflyCd: 2, quackCd: 12,
+    save, opts: save.opts,
+    paused: false, playMs: 0,
   };
   attachTasks(g);
   attachUI(g);
@@ -68,6 +74,18 @@ function newGame() {
   g.events.on('teatime', () => {
     g.state = 'ending';
     g.ui.endT = 0;
+    save.finished++;
+    if (!save.bestMs || g.playMs < save.bestMs) save.bestMs = g.playMs;
+    writeSave(save);
+  });
+  g.events.on('task-done', ({ task }) => {
+    if (!task.extra) return;
+    save.extras[task.id] = true;      // mischief is remembered between visits
+    writeSave(save);
+  });
+  g.events.on('washing-down', ({ x, y }) => g.particles.burst('petal', x, y - 40, 6));
+  g.events.on('item-home', ({ kind, item }) => {
+    g.particles.burst(kind === 'duck' ? 'splash' : 'heart', item.x, item.y - 16, 6);
   });
   return g;
 }
@@ -109,14 +127,60 @@ function ambience(g, dt) {
   }
 }
 
+function handleMenuClick(g, click) {
+  const id = menuHit(g.ui, click.x, click.y);
+  if (!id) return;
+  if (id === 'resume') { g.paused = false; g.ui.rebinding = null; return; }
+  if (id === 'restart') {
+    g.paused = false;
+    game = newGame();
+    window.game = game;
+    resize();
+    return;
+  }
+  if (id === 'motion') {
+    g.opts.reducedMotion = !g.opts.reducedMotion;
+    writeSave(g.save);
+    return;
+  }
+  if (id === 'sound') {
+    g.opts.muted = toggleMute(g.audio);
+    writeSave(g.save);
+    return;
+  }
+  if (id.startsWith('bind:')) {
+    const name = id.slice(5);
+    g.ui.rebinding = name;
+    input.grabKey = (code) => {
+      const keys = g.save.opts.keys || {};
+      keys[name] = [code];
+      g.save.opts.keys = keys;
+      input.binds = keyBinds(g.save);
+      g.ui.rebinding = null;
+      writeSave(g.save);
+    };
+  }
+}
+
 function tick(dt) {
   game.time += dt;
   updateInput(input, game.width, game.height);
   const snap = input.snap;
   if (snap.any) ensureAudio(audio);
-  if (snap.mute) toggleMute(audio);
+  if (snap.mute) { save.opts.muted = toggleMute(audio); writeSave(save); }
+
+  // pausing freezes the garden but keeps the menu responsive
+  if (game.state === 'playing' && snap.pause) game.paused = !game.paused;
+  if (game.paused) {
+    if (snap.click) handleMenuClick(game, snap.click);
+    updateUI(game, dt);
+    updateAudio(game, dt);
+    return;
+  }
+  if (game.state === 'playing') game.playMs += dt * 1000;
 
   updateWorld(game.world, game, dt);
+  for (const it of game.world.items) updateItem(it, game, dt);
   updateParticles(game.particles, dt);
   ambience(game, dt);
 
@@ -202,8 +266,17 @@ function draw() {
 
   drawGround(ctx, g);
 
+  // props outside the view are skipped; the borders alone are ~160 of them
+  const vw = g.width / s, vh = g.height / s;
+  const left = cam.x - vw / 2 - 30, right = cam.x + vw / 2 + 30;
+  const top = cam.y - vh / 2 - 30, bottom = cam.y + vh / 2 + 30;
   const items = [];
-  for (const pr of g.world.props) items.push(pr);
+  for (const pr of g.world.props) {
+    if (pr.cr !== undefined &&
+        (pr.cx + pr.cr < left || pr.cx - pr.cr > right ||
+         pr.cy + pr.cr < top || pr.cy - pr.cr > bottom)) continue;
+    items.push(pr);
+  }
   const p = g.player;
   const b = barrowCenter(p);
   items.push({ sortY: p.y, draw: (c) => drawPlayer(c, g) });
@@ -214,7 +287,9 @@ function draw() {
   items.push({ sortY: g.dog.y, draw: (c) => S.drawDog(c, g.dog, g.time) });
   items.push({ sortY: g.gran.y, draw: (c) => S.drawGran(c, g.gran, g.time) });
   for (const a of g.world.apples) items.push({ sortY: a.y, draw: (c) => S.drawApple(c, a, g.time) });
-  items.push({ sortY: g.world.duck.y, draw: (c) => S.drawDuck(c, g.world.duck, g.time) });
+  for (const it of g.world.items) {
+    if (it.state !== 'carried') items.push({ sortY: it.y, draw: (c) => drawItem(c, it, g.time) });
+  }
   items.sort((x, y) => x.sortY - y.sortY);
   for (const it of items) it.draw(ctx, g);
 
@@ -238,6 +313,7 @@ function draw() {
     drawBanner(ctx, g, g.width);
     drawHints(ctx, g, g.width, g.height);
     drawTouchControls(ctx, g);
+    if (g.paused) drawPause(ctx, g, g.width, g.height);
   }
 
   if (input.keys.has('Backquote')) {

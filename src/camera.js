@@ -13,11 +13,12 @@ export function updateCamera(cam, game, dt) {
   cam.x += (tx - cam.x) * d;
   cam.y += (ty - cam.y) * d;
   // ease back a little at speed so a trot feels quicker than it is
-  const want = 1 - Math.min(p.v / 192, 1) * 0.07;
+  const gentle = game.opts && game.opts.reducedMotion;
+  const want = 1 - Math.min(p.v / 192, 1) * (gentle ? 0 : 0.07);
   cam.zoom += (want - cam.zoom) * expDamp(2.5, dt);
   clampCamera(cam, game);
   cam.shake = Math.max(0, cam.shake - dt * 8);
-  const s = Math.min(cam.shake, 1) * 4;
+  const s = gentle ? 0 : Math.min(cam.shake, 1) * 4;
   cam.sx = rand(-s, s); cam.sy = rand(-s, s);
 }
 

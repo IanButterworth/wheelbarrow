@@ -498,7 +498,7 @@ export function drawSprinklerWater(ctx, s, t) {
   }
 }
 
-export function drawWashing(ctx, w, t) {
+export function drawWashing(ctx, w, t, pegged = 3) {
   const { x1, y, x2 } = w;
   ctx.fillStyle = C.treeTrunk;
   rr(ctx, x1 - 3, y - 78, 6, 78, 3); ctx.fill();
@@ -511,7 +511,7 @@ export function drawWashing(ctx, w, t) {
   ctx.stroke();
   const colors = [C.sheet1, C.sheet2, C.sheet3];
   const n = 3, span = (x2 - x1 - 60) / n;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < Math.min(n, pegged); i++) {
     const sx = x1 + 30 + i * span + 6;
     const sw = span - 16;
     const flap = Math.sin(t * 1.8 + i * 1.7) * 7;
@@ -543,19 +543,48 @@ export function drawApple(ctx, a, t) {
   ellipse(ctx, a.x + 3.5, a.y - 11, 3, 1.6, C.appleLeaf, -0.5);
 }
 
-export function drawDuck(ctx, d, t) {
-  const bobb = Math.sin(t * 2 + 1) * 1.5;
+// A sheet blown off the line, crumpled on the grass.
+export function drawSheet(ctx, x, y, t, seed = 0, z = 0) {
+  const gy = y - z;
+  shadow(ctx, x, y + 1, 15, 6);
+  const flap = Math.sin(t * 1.6 + seed) * 2;
+  ctx.fillStyle = [C.sheet1, C.sheet2, C.sheet3][seed % 3];
+  ctx.beginPath();
+  ctx.moveTo(x - 16, gy);
+  ctx.quadraticCurveTo(x - 10, gy - 14 + flap, x - 1, gy - 9);
+  ctx.quadraticCurveTo(x + 7, gy - 16 - flap, x + 16, gy - 5);
+  ctx.quadraticCurveTo(x + 10, gy + 4, x, gy + 2);
+  ctx.quadraticCurveTo(x - 8, gy + 5, x - 16, gy);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(74,67,54,0.16)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
+
+export function drawDuck(ctx, d, t, onWater = true) {
+  const bobb = onWater ? Math.sin(t * 2 + 1) * 1.5 : 0;
   const flip = d.flip;
+  if (!onWater) shadow(ctx, d.x, d.y + 4, 12, 5);
   ellipse(ctx, d.x, d.y + bobb, 11, 7, C.duck);
   ellipse(ctx, d.x - 9 * flip, d.y - 3 + bobb, 4.5, 3.4, C.duck, -0.5 * flip);
   circle(ctx, d.x + 8 * flip, d.y - 8 + bobb, 5, C.duck);
   ellipse(ctx, d.x + 13 * flip, d.y - 7 + bobb, 3.4, 2, C.duckBeak);
   circle(ctx, d.x + 9 * flip, d.y - 9.5 + bobb, 1.1, C.ink);
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(d.x - 14 * flip, d.y + 4 + bobb, 8, -0.4 * flip, 0.9);
-  ctx.stroke();
+  if (onWater) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(d.x - 14 * flip, d.y + 4 + bobb, 8, -0.4 * flip, 0.9);
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = C.duckBeak;   // little orange feet when out of the water
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(d.x - 3, d.y + 5); ctx.lineTo(d.x - 3 + 4 * flip, d.y + 7);
+    ctx.moveTo(d.x + 4, d.y + 5); ctx.lineTo(d.x + 4 + 4 * flip, d.y + 7);
+    ctx.stroke();
+  }
 }
 
 export function drawFlowerClump(ctx, x, y, color, t, n = 3) {
@@ -768,8 +797,9 @@ export function drawCompost(ctx, x, y) {
   ellipse(ctx, x + 7, y - 35, 6, 3.5, C.leaf);
 }
 
-export function drawSwing(ctx, x, y, t) {
-  const sway = Math.sin(t * 1.2) * 0.09;
+// drive is the rider's swing phase (-1..1); empty, it just stirs in the breeze
+export function drawSwing(ctx, x, y, t, drive = null) {
+  const sway = drive === null ? Math.sin(t * 1.2) * 0.09 : drive * 0.42;
   ctx.strokeStyle = '#8a8172';
   ctx.lineWidth = 2;
   const sx = x + Math.sin(sway) * 40;

@@ -1,5 +1,6 @@
 import { TAU, clamp, lerp, dist, shortAngle, rand, expDamp } from './utils.js';
 import { resolveCircle, surfaceAt, settleOnGround } from './physics.js';
+import { ITEMS, drawCarriedItem, makeItem } from './items.js';
 import { C } from './palette.js';
 import * as S from './sprites.js';
 
@@ -10,7 +11,10 @@ const HAND_OFF = 16, BARROW_LEN = 34, WHEEL_AHEAD = 54;
 const BA_K = 52, BA_D = 8.5;             // barrow heading spring
 const ROLL_K = 100, ROLL_D = 7;          // roll oscillator
 const ROLL_LIMIT = 0.55, K_LAT = 0.062, TROT_LAT = 1.8;
-const K_BUMP = 0.018, GRAVEL_JIT = 14;
+// Gravel jitter is a random walk, so its per-step impulse scales with the
+// square root of dt: scaling it linearly made spills on a path measurably
+// likelier at 60Hz than at 144Hz.
+const K_BUMP = 0.018, GRAVEL_JIT = 1.8;
 
 export function makePlayer(world) {
   const s = world.parentStart;
@@ -19,7 +23,7 @@ export function makePlayer(world) {
     ba: 0, baVel: 0,
     roll: 0, rollVel: 0,
     wheelPhase: 0, bobT: 0,
-    cargo: { kids: [], apples: 0 },
+    cargo: { kids: [], apples: 0, items: [] },
     tipT: 0, trampleCd: 0, dustCd: 0,
     surface: { type: 'grass', speed: 1 },
   };
@@ -44,10 +48,17 @@ export function seatPoint(p, i) {
   };
 }
 
-export const canLoadKid = (p) =>
-  p.cargo.kids.length === 0 ? p.cargo.apples <= 3 : p.cargo.kids.length === 1 && p.cargo.apples === 0;
+// The barrow holds two things. A child is one, a loose thing is one, and any
+// number of apples together count as one.
+const SLOTS = 2;
+export const slotsUsed = (p) =>
+  p.cargo.kids.length + p.cargo.items.length + (p.cargo.apples > 0 ? 1 : 0);
+export const canLoadKid = (p) => slotsUsed(p) < SLOTS;
+export const canLoadItem = (p) => slotsUsed(p) < SLOTS;
 export const canLoadApple = (p) =>
-  p.cargo.kids.length === 0 ? p.cargo.apples < 6 : p.cargo.kids.length === 1 && p.cargo.apples < 3;
+  p.cargo.apples < 6 && (p.cargo.apples > 0 || slotsUsed(p) < SLOTS);
+export const hasCargo = (p) =>
+  p.cargo.kids.length > 0 || p.cargo.apples > 0 || p.cargo.items.length > 0;
 
 function ejectKid(game, kid, side) {
   const p = game.player;
@@ -60,6 +71,42 @@ function ejectKid(game, kid, side) {
   kid.vy = py * rand(60, 100) + Math.sin(p.a) * p.v * 0.35;
   kid.sitT = rand(1.6, 2.4);
   kid.beam = true;
+}
+
+// Put a loose thing down where the barrow is pointing, and see whether that
+// happens to be where it belongs.
+function dropItem(game, it, x, y, thrown) {
+  const w = game.world;
+  it.x = x; it.y = y;
+  if (thrown) {
+    it.z = 14; it.zv = 90;
+    it.vx = thrown.vx; it.vy = thrown.vy;
+  } else {
+    it.z = 0; it.zv = 0; it.vx = 0; it.vy = 0;
+    settleOnGround(it, ITEMS[it.kind].r, w);
+  }
+  const home = ITEMS[it.kind].home;
+  const reg = w.regions[home];
+  const landed = !thrown && reg && dist(it.x, it.y, reg.x, reg.y) < reg.r;
+  if (landed) {
+    it.state = 'settled';
+    it.settledAt = home;
+    if (it.kind === 'sheet') {          // pegged back up, so it leaves the ground
+      const i = w.items.indexOf(it);
+      if (i >= 0) w.items.splice(i, 1);
+      w.pegged = Math.min(w.washing.slots, w.pegged + 1);
+    } else if (it.kind === 'duck') {
+      it.x = w.pond.x + rand(-60, 60);
+      it.y = w.pond.y + rand(-40, 40);
+    } else if (it.kind === 'gnome') {
+      it.x = 596; it.y = 554;
+    }
+    game.events.emit('item-home', { item: it, kind: it.kind });
+  } else {
+    it.state = 'loose';
+    it.settledAt = null;
+  }
+  game.events.emit('item-down', { item: it, kind: it.kind, home: landed });
 }
 
 function scatterApples(game, gentle) {
@@ -91,6 +138,12 @@ function finishTip(game) {
     }
   }
   const wp = wheelPoint(p);
+  // loose things roll out in front of the wheel
+  for (const it of p.cargo.items.splice(0)) {
+    dropItem(game, it,
+      wp.x + Math.cos(p.ba) * 18 + rand(-8, 8),
+      wp.y + Math.sin(p.ba) * 18 + rand(-6, 6), null);
+  }
   const kids = p.cargo.kids.splice(0);
   kids.forEach((kid, i) => {
     const side = i === 0 ? 1 : -1;
@@ -113,6 +166,17 @@ function finishTip(game) {
       kid.settledAt = 'blanket';
       kid.x = bl.x + (kid.name === 'Poppy' ? -30 : 30);
       kid.y = bl.y + 14;
+    } else if (dist(kid.x, kid.y, w.regions.swing.x, w.regions.swing.y) < w.regions.swing.r) {
+      spot = 'swing';                       // put down by the tree: straight on the swing
+      kid.state = 'settled';
+      kid.settledAt = 'swing';
+      kid.x = w.regions.swing.x; kid.y = w.regions.swing.y;
+    } else if (dist(kid.x, kid.y, w.regions.bench.x, w.regions.bench.y) < w.regions.bench.r) {
+      spot = 'bench';
+      kid.state = 'settled';
+      kid.settledAt = 'bench';
+      kid.x = w.bench.x + (kid.name === 'Poppy' ? -13 : 13);
+      kid.y = w.bench.y - 16;
     } else {
       kid.state = 'wander';
       kid.home = { x: kid.x, y: kid.y };
@@ -153,12 +217,13 @@ export function updatePlayer(game, dt) {
   p.ba += p.baVel * dt;
 
   // barrow collision pushes the parent back
-  const b = barrowCenter(p);
+  let b = barrowCenter(p);
   const probe = { x: b.x, y: b.y };
   const hit = resolveCircle(probe, 13, w.solids);
   if (hit) {
     p.x += probe.x - b.x;
     p.y += probe.y - b.y;
+    b = barrowCenter(p);   // everything below wants where the barrow ended up
     if (p.v > 60) {
       p.rollVel += rand(-1, 1) * p.v * 0.01;
       game.events.emit('clunk', { v: p.v });
@@ -169,7 +234,7 @@ export function updatePlayer(game, dt) {
   // surface under the wheel
   const wp = wheelPoint(p);
   p.surface = surfaceAt(w.surfaces, wp.x, wp.y);
-  if (p.surface.type === 'gravel') p.rollVel += rand(-1, 1) * GRAVEL_JIT * (p.v / vMax) * dt;
+  if (p.surface.type === 'gravel') p.rollVel += rand(-1, 1) * GRAVEL_JIT * (p.v / vMax) * Math.sqrt(dt);
 
   // the wheel kicks up dust on anything but grass
   p.dustCd -= dt;
@@ -186,6 +251,19 @@ export function updatePlayer(game, dt) {
     game.events.emit('trample', { x: wp.x, y: wp.y });
   }
   p.trampleCd = Math.max(0, p.trampleCd - dt);
+
+  // barging through the washing line brings a sheet down
+  const wl = w.washing;
+  if (w.pegged > 0 && p.v > 45 && Math.abs(wp.y - wl.y) < 26 && wp.x > wl.x1 && wp.x < wl.x2) {
+    if (!p.throughLine) {
+      p.throughLine = true;
+      w.pegged--;
+      w.items.push(makeItem('sheet', wp.x + rand(-20, 20), wl.y + rand(30, 60)));
+      game.events.emit('washing-down', { x: wp.x, y: wl.y });
+    }
+  } else if (Math.abs(wp.y - wl.y) > 40) {
+    p.throughLine = false;
+  }
 
   // molehill bumps
   for (const m of w.molehills) {
@@ -204,6 +282,11 @@ export function updatePlayer(game, dt) {
     if (p.cargo.kids.length > 0 || p.cargo.apples > 0) {
       const side = Math.sign(p.roll);
       for (const kid of p.cargo.kids.splice(0)) ejectKid(game, kid, side);
+      for (const it of p.cargo.items.splice(0)) {
+        const px = -Math.sin(p.ba) * side, py = Math.cos(p.ba) * side;
+        dropItem(game, it, b.x + px * 10, b.y + py * 10,
+          { vx: px * rand(50, 90) + Math.cos(p.a) * p.v * 0.3, vy: py * rand(50, 90) + Math.sin(p.a) * p.v * 0.3 });
+      }
       scatterApples(game, false);
       // suddenly empty, the barrow rocks back rather than snapping upright
       p.roll = side * ROLL_LIMIT * 0.5;
@@ -234,7 +317,8 @@ export function updatePlayer(game, dt) {
   }
 
   // context prompt + action
-  let candidate = null;
+  const inReach = (o) => dist(b.x, b.y, o.x, o.y) < 56 || dist(p.x, p.y, o.x, o.y) < 46;
+  let candidate = null, candidateItem = null;
   if (canLoadKid(p)) {
     for (const kid of game.children) {
       if (kid.state === 'carried') continue;
@@ -242,13 +326,22 @@ export function updatePlayer(game, dt) {
       // don't scoop a child back up off the picnic blanket while delivering the
       // other one: with cargo aboard the action key means "tip out"
       if (kid.state === 'settled' && p.cargo.kids.length > 0) continue;
-      if (dist(b.x, b.y, kid.x, kid.y) < 56 || dist(p.x, p.y, kid.x, kid.y) < 46) { candidate = kid; break; }
+      if (inReach(kid)) { candidate = kid; break; }
+    }
+  }
+  if (!candidate && canLoadItem(p)) {
+    for (const it of w.items) {
+      if (it.state === 'carried' || it.z > 0) continue;
+      // likewise, don't pick a settled thing back up mid-delivery
+      if (it.state === 'settled' && hasCargo(p)) continue;
+      if (inReach(it)) { candidateItem = it; break; }
     }
   }
   const atCrate = dist(b.x, b.y, w.regions.crate.x, w.regions.crate.y) < w.regions.crate.r;
   if (candidate) game.prompt = { text: `pick up ${candidate.name}`, icon: 'load' };
+  else if (candidateItem) game.prompt = { text: `pick up ${ITEMS[candidateItem.kind].the}`, icon: 'load' };
   else if (p.cargo.apples > 0 && atCrate) game.prompt = { text: 'tip the apples in', icon: 'pour' };
-  else if (p.cargo.kids.length > 0 || p.cargo.apples > 0) game.prompt = { text: 'tip everyone out', icon: 'tip' };
+  else if (hasCargo(p)) game.prompt = { text: 'tip it all out', icon: 'tip' };
   else game.prompt = null;
 
   if (snap.action && p.tipT <= 0) {
@@ -258,7 +351,13 @@ export function updatePlayer(game, dt) {
       candidate.settledAt = null;
       p.cargo.kids.push(candidate);
       game.events.emit('load', { kid: candidate });
-    } else if (p.cargo.kids.length > 0 || p.cargo.apples > 0) {
+    } else if (candidateItem) {
+      candidateItem.state = 'carried';
+      candidateItem.settledAt = null;
+      p.cargo.items.push(candidateItem);
+      if (candidateItem.kind === 'gnome') game.events.emit('gnome-lifted', {});
+      game.events.emit('item-load', { item: candidateItem, kind: candidateItem.kind });
+    } else if (hasCargo(p)) {
       p.tipT = 0.4;
       p.tipAtCrate = atCrate;
       game.events.emit('tip-start', {});
@@ -322,6 +421,12 @@ export function drawBarrow(ctx, game) {
     ctx.fill();
   }
   ctx.restore();
+
+  // whatever else is riding along, drawn upright rather than in the tub's plane
+  p.cargo.items.forEach((it, i) => {
+    const s = seatPoint(p, p.cargo.kids.length + i);
+    drawCarriedItem(ctx, it, s.x - p.roll * 8, s.y + ITEMS[it.kind].carry, game.time);
+  });
 
   // wheel with turning spokes
   const wy = wp.y - 7;

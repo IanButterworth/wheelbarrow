@@ -1,18 +1,23 @@
 import { clamp } from './utils.js';
+import { DEFAULT_KEYS } from './save.js';
 
 // Unified keyboard + touch input. Everything downstream reads input.snap only.
-export function makeInput(canvas) {
+export function makeInput(canvas, binds = DEFAULT_KEYS) {
   const input = {
     keys: new Set(),
+    binds,                 // remappable, see save.js
     pointers: new Map(),   // pointerId -> {role, x, y}
     joy: null,             // {id, ox, oy, dx, dy}
     buttons: { action: { x: 0, y: 0, r: 46 }, trot: { x: 0, y: 0, r: 34 }, list: { x: 0, y: 0, r: 26 } },
     w: 1, h: 1,
     lastSource: 'key',
     touchSeen: false,
-    frame: { action: false, list: false, mute: false, any: false },
-    snap: { mx: 0, my: 0, mag: 0, action: false, actionHeld: false, trot: false, list: false, mute: false, any: false },
+    grabKey: null,         // set while the options screen is listening for a key
+    frame: { action: false, list: false, mute: false, pause: false, any: false, click: null },
+    snap: { mx: 0, my: 0, mag: 0, action: false, actionHeld: false, trot: false, list: false, mute: false, pause: false, any: false, click: null },
   };
+
+  const bound = (name, code) => input.binds[name] && input.binds[name].includes(code);
 
   window.addEventListener('keydown', (e) => {
     if (['Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -21,10 +26,13 @@ export function makeInput(canvas) {
     input.keys.add(e.code);
     if (e.repeat) return;
     input.lastSource = 'key';
+    // while rebinding, the next key press is the new binding and nothing else
+    if (input.grabKey) { input.grabKey(e.code); input.grabKey = null; return; }
     input.frame.any = true;
-    if (e.code === 'Space' || e.code === 'KeyE') input.frame.action = true;
-    if (e.code === 'Tab' || e.code === 'KeyL') input.frame.list = true;
-    if (e.code === 'KeyM') input.frame.mute = true;
+    if (bound('action', e.code)) input.frame.action = true;
+    if (bound('list', e.code)) input.frame.list = true;
+    if (bound('mute', e.code)) input.frame.mute = true;
+    if (bound('pause', e.code)) input.frame.pause = true;
   });
   window.addEventListener('keyup', (e) => input.keys.delete(e.code));
   const forgetAll = () => { input.keys.clear(); input.pointers.clear(); input.joy = null; };
@@ -55,6 +63,7 @@ export function makeInput(canvas) {
     if (touchLike) { input.touchSeen = true; input.lastSource = 'touch'; }
     input.frame.any = true;
     const x = e.clientX, y = e.clientY;
+    input.frame.click = { x, y };   // menus hit-test this, whatever the device
     // The on-screen buttons belong to touch: a mouse must never hit them, or a
     // stray click near a corner tips the load out for no visible reason. Mouse
     // and trackpad still steer by dragging, anywhere on the canvas, and the
@@ -103,11 +112,12 @@ export function updateInput(input, w, h) {
   b.list.x = w - 44; b.list.y = 42;
 
   const k = input.keys;
+  const held = (name) => input.binds[name].some((c) => k.has(c));
   let mx = 0, my = 0;
-  if (k.has('KeyA') || k.has('ArrowLeft')) mx -= 1;
-  if (k.has('KeyD') || k.has('ArrowRight')) mx += 1;
-  if (k.has('KeyW') || k.has('ArrowUp')) my -= 1;
-  if (k.has('KeyS') || k.has('ArrowDown')) my += 1;
+  if (held('left')) mx -= 1;
+  if (held('right')) mx += 1;
+  if (held('up')) my -= 1;
+  if (held('down')) my += 1;
   let mag = 0;
   if (mx || my) {
     const len = Math.hypot(mx, my);
@@ -129,11 +139,14 @@ export function updateInput(input, w, h) {
 
   const s = input.snap;
   s.mx = mx; s.my = my; s.mag = mag;
-  s.trot = k.has('ShiftLeft') || k.has('ShiftRight') || trotBtn;
-  s.actionHeld = k.has('Space') || k.has('KeyE') || actionBtn;
+  s.trot = held('trot') || trotBtn;
+  s.actionHeld = held('action') || actionBtn;
   s.action = input.frame.action;
   s.list = input.frame.list;
   s.mute = input.frame.mute;
+  s.pause = input.frame.pause;
   s.any = input.frame.any;
-  input.frame.action = input.frame.list = input.frame.mute = input.frame.any = false;
+  s.click = input.frame.click;
+  input.frame.action = input.frame.list = input.frame.mute = input.frame.pause = input.frame.any = false;
+  input.frame.click = null;
 }
