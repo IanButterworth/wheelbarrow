@@ -156,7 +156,7 @@ export function drawHints(ctx, game, w, h) {
   ctx.globalAlpha = clamp(ui.hintT, 0, 1) * 0.85;
   ctx.fillStyle = C.uiPill;
   ctx.font = `12px ${FONT}`;
-  const text = 'WASD / arrows move · hold Shift to trot · Space action · Tab list · M mute';
+  const text = 'WASD, arrows, or drag to move · hold Shift to trot · Space action · Tab list · M mute';
   const tw = ctx.measureText(text).width;
   pill(ctx, w / 2, h - 16, tw + 28, 26);
   ctx.fillStyle = C.white;
@@ -168,16 +168,24 @@ export function drawHints(ctx, game, w, h) {
 
 export function drawTouchControls(ctx, game) {
   const input = game.input;
-  const a = game.ui.touchFade;
-  if (a < 0.02 || game.state !== 'playing') return;
-  ctx.globalAlpha = a * 0.85;
+  if (game.state !== 'playing') return;
+  // The steering stick is drawn whenever one exists, mouse or finger, so that
+  // drag-to-move is always visible feedback rather than a hidden control.
   if (input.joy) {
     const j = input.joy;
+    ctx.globalAlpha = 0.85;
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
     ctx.beginPath(); ctx.arc(j.ox, j.oy, 54, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.beginPath(); ctx.arc(j.ox + j.dx, j.oy + j.dy, 26, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
   }
+  const a = game.ui.touchFade;
+  if (a < 0.02) return;
+  ctx.globalAlpha = a * 0.85;
   const btns = input.buttons;
   const held = new Set([...input.pointers.values()].map((p) => p.role));
   for (const name of ['action', 'trot']) {

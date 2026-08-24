@@ -50,19 +50,21 @@ export function makeInput(canvas) {
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic events have no real pointer */ }
-    if (e.pointerType === 'touch') input.touchSeen = true;
-    input.lastSource = e.pointerType === 'touch' ? 'touch' : input.lastSource;
+    // a pen implies a tablet, so treat it like a finger
+    const touchLike = e.pointerType === 'touch' || e.pointerType === 'pen';
+    if (touchLike) { input.touchSeen = true; input.lastSource = 'touch'; }
     input.frame.any = true;
     const x = e.clientX, y = e.clientY;
-    // the on-screen controls only exist for touch; a mouse must not hit the
-    // invisible buttons and tip the load out for no visible reason
-    const touch = e.pointerType === 'touch';
-    const btn = touch ? hitButton(x, y) : null;
+    // The on-screen buttons belong to touch: a mouse must never hit them, or a
+    // stray click near a corner tips the load out for no visible reason. Mouse
+    // and trackpad still steer by dragging, anywhere on the canvas, and the
+    // stick is drawn while they do so it is not an invisible control.
+    const btn = touchLike ? hitButton(x, y) : null;
     if (btn) {
       input.pointers.set(e.pointerId, { role: btn, x, y });
       if (btn === 'action') input.frame.action = true;
       if (btn === 'list') input.frame.list = true;
-    } else if (touch && !input.joy && x < input.w * 0.62) {
+    } else if (!input.joy && (!touchLike || x < input.w * 0.62)) {
       input.joy = { id: e.pointerId, ox: x, oy: y, dx: 0, dy: 0 };
       input.pointers.set(e.pointerId, { role: 'joy', x, y });
     } else {
