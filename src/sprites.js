@@ -476,19 +476,23 @@ export function drawSprinklerBase(ctx, x, y) {
   circle(ctx, x, y - 13, 4, '#6f7a7e');
 }
 
+// Height of the nozzle above the sprinkler's foot, so the jets leave the head
+// itself rather than starting adrift of it.
+const SPRINKLER_NOZZLE = 14;
+
 export function drawSprinklerWater(ctx, s, t) {
   const ang = s.angle;
   ctx.fillStyle = C.water;
-  for (let i = 0; i < 14; i++) {
-    const f = (i / 14 + (t * 0.9) % 1) % 1;
-    const d = 20 + f * (s.reach - 20);
+  for (let i = 0; i < 20; i++) {
+    const f = (i / 20 + (t * 0.9) % 1) % 1;
+    const d = f * s.reach;
     const spread = 0.16;
     for (const off of [-spread, 0, spread]) {
       const a = ang + off * (0.4 + f);
       const px = s.x + Math.cos(a) * d;
-      const py = s.y + Math.sin(a) * d * 0.6 - Math.sin(f * Math.PI) * 26;
+      const py = s.y - SPRINKLER_NOZZLE + Math.sin(a) * d * 0.6 - Math.sin(f * Math.PI) * 26;
       ctx.beginPath();
-      ctx.arc(px, py, 2.2 - f * 0.8, 0, TAU);
+      ctx.arc(px, py, 2.4 - f * 1, 0, TAU);
       ctx.fill();
     }
   }

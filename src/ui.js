@@ -1,4 +1,4 @@
-import { clamp, lerp, expDamp } from './utils.js';
+import { clamp, lerp, expDamp, TAU } from './utils.js';
 import { C } from './palette.js';
 import { FONT } from './sprites.js';
 import { taskText } from './tasks.js';
@@ -207,36 +207,128 @@ export function drawTouchControls(ctx, game) {
   ctx.globalAlpha = 1;
 }
 
+// A sheet of the same note paper the to-do list is written on, centred on the
+// origin so callers own the transform. One horizontal crease: it has been
+// folded in a pocket and smoothed out again.
+function noteSheet(ctx, nw, nh) {
+  const x = -nw / 2, y = -nh / 2;
+  ctx.fillStyle = 'rgba(55, 70, 45, 0.22)';
+  ctx.beginPath();
+  ctx.roundRect(x + 5, y + 8, nw, nh, 7);
+  ctx.fill();
+  ctx.fillStyle = C.paper;
+  ctx.beginPath();
+  ctx.roundRect(x, y, nw, nh, 7);
+  ctx.fill();
+  // the crease, with the paper catching a little light just below it. It sits
+  // in the gap under the title block, never across the lettering.
+  const fold = y + nh * 0.56;
+  const shade = ctx.createLinearGradient(0, fold - 16, 0, fold + 16);
+  shade.addColorStop(0, 'rgba(120, 110, 88, 0)');
+  shade.addColorStop(0.5, 'rgba(120, 110, 88, 0.13)');
+  shade.addColorStop(0.52, 'rgba(255, 253, 245, 0.5)');
+  shade.addColorStop(1, 'rgba(255, 253, 245, 0)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(x, fold - 16, nw, 32);
+  ctx.strokeStyle = 'rgba(74, 67, 54, 0.18)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + 1, fold);
+  ctx.lineTo(x + nw - 1, fold);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(74, 67, 54, 0.16)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, nw, nh, 7);
+  ctx.stroke();
+}
+
+// biro sketch of the barrow, drawn about (0, 0), facing right
+function inkBarrow(ctx, s) {
+  ctx.save();
+  ctx.scale(s, s);
+  ctx.strokeStyle = 'rgba(74, 67, 54, 0.75)';
+  ctx.lineWidth = 2.1;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();          // tub
+  ctx.moveTo(-20, -9);
+  ctx.lineTo(13, -12);
+  ctx.lineTo(19, 3);
+  ctx.lineTo(-13, 5);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.beginPath();          // handles and leg
+  ctx.moveTo(-19, -6); ctx.lineTo(-34, -1);
+  ctx.moveTo(-14, 3); ctx.lineTo(-30, 6);
+  ctx.moveTo(-11, 5); ctx.lineTo(-13, 13);
+  ctx.stroke();
+  ctx.beginPath();          // wheel
+  ctx.arc(13, 10, 7, 0, TAU);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(90, 130, 70, 0.75)';   // a flower riding along in it
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(0, -10);
+  ctx.quadraticCurveTo(2, -20, 6, -25);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(199, 125, 174, 0.8)';
+  ctx.beginPath();
+  ctx.arc(7, -27, 4, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+}
+
 export function drawTitle(ctx, game, w, h) {
   const t = game.ui.titleT;
-  ctx.fillStyle = 'rgba(253, 249, 235, 0.2)';
+  // vignette rather than a flat wash, so the garden keeps its colour
+  const vig = ctx.createRadialGradient(w / 2, h * 0.42, Math.min(w, h) * 0.2, w / 2, h * 0.42, Math.max(w, h) * 0.72);
+  vig.addColorStop(0, 'rgba(253, 249, 235, 0.16)');
+  vig.addColorStop(1, 'rgba(48, 62, 40, 0.32)');
+  ctx.fillStyle = vig;
   ctx.fillRect(0, 0, w, h);
-  const cx = w / 2, cy = h * 0.38;
-  paper(ctx, cx - 220, cy - 100, 440, 190);
+
+  const NW = 470, NH = 300;
+  const s = Math.min(1, (w - 76) / NW, (h - 60) / (NH * 1.25));
   ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(Math.sin(t * 0.8) * 0.008);
-  ctx.fillStyle = C.titleInk;
+  ctx.translate(w / 2, h * 0.44);
+  ctx.rotate(-0.018 + Math.sin(t * 0.55) * 0.007);   // paper and ink as one
+  ctx.scale(s, s);
+
+  noteSheet(ctx, NW, NH);
+
+  // "untitled" sits at a slight angle, as though pencilled in above the title
   ctx.textAlign = 'center';
-  ctx.font = `bold 30px ${FONT}`;
-  ctx.fillText('UNTITLED', 0, -46);
-  ctx.font = `bold 38px ${FONT}`;
-  ctx.fillText('WHEELBARROW GAME', 0, -6);
-  ctx.font = `15px ${FONT}`;
-  ctx.fillStyle = 'rgba(61,75,51,0.75)';
-  ctx.fillText('a lovely afternoon in the garden', 0, 32);
+  ctx.save();
+  ctx.translate(-6, -104);
+  ctx.rotate(-0.055);
+  ctx.fillStyle = 'rgba(74, 67, 54, 0.6)';
+  ctx.font = `24px ${FONT}`;
+  ctx.fillText('untitled', 0, 0);
   ctx.restore();
-  const pulse = 0.6 + Math.sin(t * 3) * 0.25;
-  ctx.globalAlpha = pulse;
-  ctx.fillStyle = C.uiPill;
-  ctx.font = `15px ${FONT}`;
-  ctx.textAlign = 'center';   // the restore above reset this along with the transform
-  const msg = 'press any key, or tap, to begin';
-  const tw = ctx.measureText(msg).width;
-  pill(ctx, cx, h * 0.72, tw + 44, 36);
-  ctx.fillStyle = C.white;
-  ctx.fillText(msg, cx, h * 0.72 + 5);
+
+  ctx.fillStyle = C.titleInk;
+  ctx.font = `bold 44px ${FONT}`;
+  ctx.fillText('WHEELBARROW', 0, -56);
+  ctx.fillText('GAME', 0, -10);
+
+  ctx.fillStyle = 'rgba(61, 75, 51, 0.72)';
+  ctx.font = `16px ${FONT}`;
+  ctx.fillText('a lovely afternoon in the garden', 0, 46);
+
+  ctx.save();
+  ctx.translate(0, 88);
+  ctx.rotate(0.05);
+  inkBarrow(ctx, 1.15);
+  ctx.restore();
+
+  const msg = game.input.lastSource === 'touch' ? 'tap to begin' : 'press any key to begin';
+  ctx.globalAlpha = 0.5 + Math.sin(t * 2.6) * 0.3;
+  ctx.fillStyle = 'rgba(74, 67, 54, 0.8)';
+  ctx.font = `14px ${FONT}`;
+  ctx.fillText(msg, 0, 132);
   ctx.globalAlpha = 1;
+
+  ctx.restore();
   ctx.textAlign = 'left';
 }
 
