@@ -159,7 +159,7 @@ export function drawTodoList(ctx, game, w, h) {
 }
 
 export function drawPrompt(ctx, game, w, h) {
-  if (!game.prompt || game.state !== 'playing') return;
+  if (!game.prompt || (game.state !== 'playing' && game.state !== 'greenhouse')) return;
   const key = game.input.lastSource === 'touch' ? '' : 'Space · ';
   const text = key + game.prompt.text;
   ctx.font = `14px ${FONT}`;
@@ -206,7 +206,7 @@ export function drawHints(ctx, game, w, h) {
 
 export function drawTouchControls(ctx, game) {
   const input = game.input;
-  if (game.state !== 'playing') return;
+  if (game.state !== 'playing' && game.state !== 'greenhouse') return;
   // The steering stick is drawn whenever one exists, mouse or finger, so that
   // drag-to-move is always visible feedback rather than a hidden control.
   if (input.joy) {

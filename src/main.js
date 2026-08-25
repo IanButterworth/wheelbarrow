@@ -9,6 +9,7 @@ import { makeDog, updateDog, wakeDog } from './dog.js';
 import { makeGran, updateGran, granTut } from './grandparent.js';
 import { makeParticles, updateParticles, drawParticles } from './particles.js';
 import { updateItem, drawItem } from './items.js';
+import { makeGreenhouse, updateGreenhouse, drawGreenhouse, computeFlow } from './greenhouse.js';
 import { makeTasks, attachTasks, updateTasks } from './tasks.js';
 import { makeUI, attachUI, updateUI, drawTodoList, drawPrompt, drawBanner, drawHints, drawTouchControls, drawTitle, drawEnding, drawPause, menuHit } from './ui.js';
 import { makeAudio, ensureAudio, toggleMute, attachAudio, updateAudio } from './audio.js';
@@ -83,6 +84,13 @@ function newGame() {
     save.extras[task.id] = true;      // mischief is remembered between visits
     writeSave(save);
   });
+  g.events.on('greenhouse-enter', () => {
+    g.gh = makeGreenhouse();
+    computeFlow(g.gh);
+    g.state = 'greenhouse';
+    g.prompt = null;
+  });
+  g.events.on('greenhouse-leave', () => { g.gh.leaving = 0.001; });
   g.events.on('washing-down', ({ x, y }) => g.particles.burst('petal', x, y - 40, 6));
   g.events.on('item-home', ({ kind, item }) => {
     g.particles.burst(kind === 'duck' ? 'splash' : 'heart', item.x, item.y - 16, 6);
@@ -170,7 +178,7 @@ function tick(dt) {
   if (snap.mute) { save.opts.muted = toggleMute(audio); writeSave(save); }
 
   // pausing freezes the garden but keeps the menu responsive
-  if (game.state === 'playing' && snap.pause) game.paused = !game.paused;
+  if ((game.state === 'playing' || game.state === 'greenhouse') && snap.pause) game.paused = !game.paused;
   if (game.paused) {
     if (snap.click) handleMenuClick(game, snap.click);
     updateUI(game, dt);
@@ -178,6 +186,27 @@ function tick(dt) {
     return;
   }
   if (game.state === 'playing') game.playMs += dt * 1000;
+
+  // the greenhouse is its own little world: the garden waits outside
+  if (game.state === 'greenhouse') {
+    game.playMs += dt * 1000;
+    updateGreenhouse(game, dt);
+    if (game.gh.leaving > 0) {
+      game.gh.leaving = Math.min(1, game.gh.leaving + dt * 2.6);
+      if (game.gh.leaving >= 1) {
+        game.state = 'playing';
+        // step back out of the doorway so you do not walk straight back in
+        game.player.y = game.world.ghDoor.y + 66;
+        game.player.a = Math.PI / 2;
+        game.player.ba = Math.PI / 2;
+        game.player.v = 0;
+        updateCamera(game.camera, game, 1);
+      }
+    }
+    updateUI(game, dt);
+    updateAudio(game, dt);
+    return;
+  }
 
   updateWorld(game.world, game, dt);
   for (const it of game.world.items) updateItem(it, game, dt);
@@ -253,6 +282,16 @@ function tick(dt) {
 function draw() {
   const g = game;
   const { dpr } = g;
+  if (g.state === 'greenhouse') {
+    drawGreenhouse(ctx, g, g.width, g.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawTodoList(ctx, g, g.width, g.height);
+    drawPrompt(ctx, g, g.width, g.height);
+    drawBanner(ctx, g, g.width);
+    drawTouchControls(ctx, g);
+    if (g.paused) drawPause(ctx, g, g.width, g.height);
+    return;
+  }
   const cam = g.camera;
   const s = g.scale * cam.zoom;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

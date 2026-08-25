@@ -338,6 +338,13 @@ export function updatePlayer(game, dt) {
     }
   }
   const atCrate = dist(b.x, b.y, w.regions.crate.x, w.regions.crate.y) < w.regions.crate.r;
+  // the greenhouse door: the barrow stays outside
+  const atDoor = dist(p.x, p.y, w.ghDoor.x, w.ghDoor.y) < 54;
+  if (atDoor && !candidate) {
+    game.prompt = { text: 'go into the greenhouse', icon: 'door' };
+    if (snap.action && p.tipT <= 0) game.events.emit('greenhouse-enter', {});
+    return;
+  }
   if (candidate) game.prompt = { text: `pick up ${candidate.name}`, icon: 'load' };
   else if (candidateItem) game.prompt = { text: `pick up ${ITEMS[candidateItem.kind].the}`, icon: 'load' };
   else if (p.cargo.apples > 0 && atCrate) game.prompt = { text: 'tip the apples in', icon: 'pour' };

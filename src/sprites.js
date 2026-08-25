@@ -98,7 +98,7 @@ function legs(ctx, x, y, phase, spread, color, moving) {
   ellipse(ctx, x + spread, y - 2 + Math.max(0, step) * -0.3, 3, 4.5, color);
 }
 
-export function drawParent(ctx, p, hx, hy) {
+export function drawParent(ctx, p, hx, hy, freeHands = false) {
   const { x, y } = p;
   const moving = p.v > 8;
   const bob = moving ? Math.abs(Math.sin(p.bobT * 9)) * 2.4 : 0;
@@ -126,15 +126,22 @@ export function drawParent(ctx, p, hx, hy) {
   shadow(ctx, x, y + 1, 13);
   legs(ctx, x, y, p.bobT * 9, 5.5, C.parentTrousers, moving);
   const by = y - 20 - bob;
-  // arms reaching to the barrow handles
   ctx.strokeStyle = C.parentShirt;
   ctx.lineWidth = 4.5;
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(x - 7 * flip, by + 2);
-  ctx.lineTo(hx - 3 * flip, hy - 14);
-  ctx.moveTo(x + 2 * flip, by + 2);
-  ctx.lineTo(hx + 3 * flip, hy - 14);
+  if (freeHands) {
+    // nothing to push in here: arms swing at the sides
+    const sw = moving ? Math.sin(p.bobT * 9) * 3 : 0;
+    ctx.moveTo(x - 9, by - 2); ctx.lineTo(x - 11, by + 10 + sw);
+    ctx.moveTo(x + 9, by - 2); ctx.lineTo(x + 11, by + 10 - sw);
+  } else {
+    // arms reaching to the barrow handles
+    ctx.moveTo(x - 7 * flip, by + 2);
+    ctx.lineTo(hx - 3 * flip, hy - 14);
+    ctx.moveTo(x + 2 * flip, by + 2);
+    ctx.lineTo(hx + 3 * flip, hy - 14);
+  }
   ctx.stroke();
   ellipse(ctx, x, by, 11, 13.5, C.parentShirt);
   // head + sunhat
@@ -360,6 +367,19 @@ export function drawGreenhouse(ctx, x, y) {
   ctx.moveTo(x, y - ht + 30);
   ctx.lineTo(x + w, y - ht + 30);
   ctx.stroke();
+  // the way in, standing open
+  const dx = x + w / 2 + 13;
+  ctx.fillStyle = '#b9d6b4';
+  rr(ctx, dx - 26, y - 62, 52, 62, 3);
+  ctx.fill();
+  ctx.strokeStyle = C.greenhouseFrame;
+  ctx.lineWidth = 4;
+  rr(ctx, dx - 26, y - 62, 52, 62, 3);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(60, 80, 55, 0.35)';
+  rr(ctx, dx - 20, y - 56, 40, 56, 2);
+  ctx.fill();
+
   // glazing shine
   ctx.strokeStyle = 'rgba(255,255,255,0.55)';
   ctx.lineWidth = 3;

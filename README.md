@@ -7,6 +7,10 @@ ride through the sprinkler, fetch the escaped duck back to its pond, peg the was
 back on the line, barrow the seedlings to the veg patch, sneak past the napping dog,
 and get everyone to the picnic blanket in time for tea.
 
+Step inside the greenhouse and you leave the barrow at the door for a scene of its
+own: a little pipe-routing puzzle where you turn the irrigation joints until the
+tap reaches the thirsty seedlings.
+
 There is also some optional mischief to find, and the garden remembers how many
 afternoons you have spent in it and how quickly you got everything done.
 
@@ -65,6 +69,7 @@ Flat `src/` of ES modules, no framework:
 | `world.js` | the garden: paths, beds, props, surfaces, collision shapes |
 | `tasks.js` | the to-do list, the extras, and their completion rules |
 | `items.js` | the loose things the barrow can carry, and where each belongs |
+| `greenhouse.js` | the greenhouse interior and its irrigation puzzle |
 | `child.js`, `dog.js`, `grandparent.js` | the cast |
 | `sprites.js` | every character and prop, drawn procedurally |
 | `audio.js` | synthesized sound effects, ambience, and the generative music |

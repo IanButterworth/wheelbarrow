@@ -96,7 +96,10 @@ export function makeWorld() {
   }
 
   // ---- greenhouse, veg patch, compost, crate
-  solidR(2286, 1108, 150, 44);
+  // the doorway is a gap in the solid, so you can walk up to it
+  solidR(2286, 1108, 62, 44);
+  solidR(2374, 1108, 62, 44);
+  const ghDoor = { x: 2361, y: 1150 };
   props.push({ sortY: 1152, draw: (ctx) => S.drawGreenhouse(ctx, 2286, 1152) });
   solidC(2196, 1214, 22);
   props.push({ sortY: 1214, draw: (ctx, g) => S.drawCrate(ctx, 2196, 1214, g.crateApples) });
@@ -211,7 +214,8 @@ export function makeWorld() {
   const items = [
     makeItem('duck', 1648, 486),                       // got out of the pond
     makeItem('sheet', 902, 470), makeItem('sheet', 1058, 502),   // blown off the line
-    makeItem('pot', 2330, 1186), makeItem('pot', 2368, 1198), makeItem('pot', 2298, 1206),
+    // kept clear of the greenhouse door, so the two prompts do not compete
+    makeItem('pot', 2300, 1208), makeItem('pot', 2258, 1222), makeItem('pot', 2340, 1222),
     makeItem('gnome', 596, 554, { settledAt: 'patio', state: 'settled' }),
   ];
 
@@ -255,7 +259,7 @@ export function makeWorld() {
   return {
     W, H, solids, props, surfaces, regions,
     house, patio, beds, veg, pond, pool, sprinkler, washing, paths, daisies,
-    molehills, apples, items, pegged: 1, bench, bath,
+    molehills, apples, items, pegged: 1, bench, bath, ghDoor,
     dogHome: { x: 1806, y: 762 },
     granSpots: [{ x: 1996, y: 1268 }, { x: 2100, y: 1180 }, { x: 2020, y: 1330 }],
     parentStart: { x: 404, y: 500 },

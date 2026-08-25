@@ -84,6 +84,10 @@ export function makeTasks() {
       },
     },
     {
+      id: 'watering', text: 'Get the greenhouse watering running again',
+      onEvent: (type) => type === 'greenhouse-solved',
+    },
+    {
       id: 'sneak', text: 'Sneak past the dog without waking it',
       state: { inside: false, spoiled: false },
       check(game, t) {

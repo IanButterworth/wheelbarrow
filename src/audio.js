@@ -279,6 +279,16 @@ export function attachAudio(game) {
   ev.on('soaked', () => { noiseBurst(au, 0.4, { freq: 3000, gain: 0.12 }); giggle(au, 1.3); });
   ev.on('trample', () => noiseBurst(au, 0.2, { freq: 700, gain: 0.06 }));
   ev.on('quack', () => blip(au, 320, 0.14, { type: 'sawtooth', slideTo: 240, gain: 0.05 }));
+  ev.on('pipe-turn', () => {
+    blip(au, rand(200, 260), 0.09, { type: 'square', slideTo: 150, gain: 0.05 });
+    noiseBurst(au, 0.05, { freq: 1200, gain: 0.04 });
+  });
+  ev.on('greenhouse-enter', () => blip(au, 300, 0.2, { type: 'triangle', slideTo: 420, gain: 0.05 }));
+  ev.on('greenhouse-leave', () => blip(au, 420, 0.2, { type: 'triangle', slideTo: 300, gain: 0.05 }));
+  ev.on('greenhouse-solved', () => {
+    noiseBurst(au, 0.9, { freq: 2600, gain: 0.07 });   // water finding its way
+    [523, 659, 784].forEach((f, i) => blip(au, f, 0.5, { gain: 0.08, when: i * 0.16 }));
+  });
   ev.on('teatime', () => {
     [523, 659, 784, 1046].forEach((f, i) => blip(au, f, 0.5, { gain: 0.09, when: i * 0.18 }));
   });
