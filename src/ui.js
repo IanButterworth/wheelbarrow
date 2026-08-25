@@ -49,6 +49,17 @@ export function attachUI(game) {
   });
 }
 
+// Tapping the open list puts it away. On a phone that is the instinct, and it
+// is the only close affordance that needs no explaining.
+export function listTapClosed(game, click) {
+  const r = game.ui.listRect;
+  if (!r || !r.open || !click) return false;
+  if (click.x < r.x || click.x > r.x + r.w || click.y < r.y || click.y > r.y + r.h) return false;
+  game.ui.listOpen = false;
+  game.ui.autoT = 0;
+  return true;
+}
+
 export function updateUI(game, dt) {
   const ui = game.ui;
   if (game.input.snap.list) ui.listOpen = !ui.listOpen;
@@ -96,16 +107,30 @@ export function drawTodoList(ctx, game, w, h) {
   const extras = all.filter((t) => t.extra);
   ctx.font = `13px ${FONT}`;
   const pw = Math.max(252, ...all.map((t) => ctx.measureText(taskText(t)).width + 52));
-  const ph = 46 + list.length * 26 + (extras.length ? 22 + extras.length * 26 : 0);
-  const x = 16 - (1 - ui.listSlide) * (pw + 80);
+  const ph = 60 + list.length * 26 + (extras.length ? 22 + extras.length * 26 : 0);
+  // On a phone the full list is most of the screen, so shrink it to fit rather
+  // than letting it cover the garden (in landscape it was taller than the view).
+  const fit = Math.min(1, ((w - 32) * 0.72) / pw, ((h - 32) * 0.82) / ph);
+  const panelW = pw * fit, panelH = ph * fit;
+  const x = 16 - (1 - ui.listSlide) * (panelW + 80);
   const y = 16;
-  paper(ctx, x, y, pw, ph);
+  ui.listRect = { x, y, w: panelW, h: panelH, open: ui.listSlide > 0.55 };
   ctx.save();
   ctx.translate(x, y);
+  ctx.scale(fit, fit);
+  paper(ctx, 0, 0, pw, ph);
   ctx.rotate(-0.015);
   ctx.fillStyle = C.ink;
   ctx.font = `bold 17px ${FONT}`;
   ctx.fillText('To do:', 16, 28);
+  ctx.font = `13px ${FONT}`;
+  // say how to get rid of it, since it opens by itself at the start
+  ctx.fillStyle = 'rgba(74,67,54,0.45)';
+  ctx.font = `11px ${FONT}`;
+  ctx.textAlign = 'right';
+  ctx.fillText(game.input.lastSource === 'touch' ? 'tap to close' : 'Tab to close', pw - 14, 27);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = C.ink;
   ctx.font = `13px ${FONT}`;
   const line = (t, ty, i) => {
     const text = taskText(t);

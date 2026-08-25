@@ -11,7 +11,7 @@ import { makeParticles, updateParticles, drawParticles } from './particles.js';
 import { updateItem, drawItem } from './items.js';
 import { makeGreenhouse, updateGreenhouse, drawGreenhouse, computeFlow } from './greenhouse.js';
 import { makeTasks, attachTasks, updateTasks } from './tasks.js';
-import { makeUI, attachUI, updateUI, drawTodoList, drawPrompt, drawBanner, drawHints, drawTouchControls, drawTitle, drawEnding, drawPause, menuHit } from './ui.js';
+import { makeUI, attachUI, updateUI, drawTodoList, drawPrompt, drawBanner, drawHints, drawTouchControls, drawTitle, drawEnding, drawPause, menuHit, listTapClosed } from './ui.js';
 import { makeAudio, ensureAudio, toggleMute, attachAudio, updateAudio } from './audio.js';
 import { loadSave, writeSave, keyBinds } from './save.js';
 import * as S from './sprites.js';
@@ -176,6 +176,10 @@ function tick(dt) {
   const snap = input.snap;
   if (snap.any) ensureAudio(audio);
   if (snap.mute) { save.opts.muted = toggleMute(audio); writeSave(save); }
+
+  // a tap on the open to-do list dismisses it, before anything else uses the
+  // tap, though the pause menu still gets first refusal on its own clicks
+  if (!game.paused && snap.click && listTapClosed(game, snap.click)) snap.click = null;
 
   // pausing freezes the garden but keeps the menu responsive
   if ((game.state === 'playing' || game.state === 'greenhouse') && snap.pause) game.paused = !game.paused;
