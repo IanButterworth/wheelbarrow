@@ -379,85 +379,201 @@ export function updatePlayer(game, dt) {
   }
 }
 
+// The barrow is modelled in its own frame and projected into the same
+// three-quarter view as everything else: u runs forward from the hands, v to
+// the left of travel, z up from the ground. Depth is squashed like the lawn.
+const SQUASH = 0.72;
+const WHEEL_R = 9, FLOOR_Z = 12;
+const RIM = [[11, -13], [30, -16.5], [47, -13.5], [55, 0], [47, 13.5], [30, 16.5], [11, 13], [8, 0]];
+const FLOOR = [[17, -8], [38, -8.5], [44, 0], [38, 8.5], [17, 8], [15, 0]];
+const rimZ = (u) => 25 - (u - 10) * 0.04;
+
+function barrowView(p, h, shakeX) {
+  const ca = Math.cos(p.ba), sa = Math.sin(p.ba);
+  const roll = p.roll * 0.45;
+  const cr = Math.cos(roll), sr = Math.sin(roll);
+  // tipping out pivots the whole barrow forward about the axle
+  const tip = p.tipT > 0 ? (0.4 - p.tipT) * 1.2 : 0;
+  const cq = Math.cos(tip), sq = Math.sin(tip);
+  const proj = (u, v, z) => {
+    const v1 = v * cr - z * sr, z1 = v * sr + z * cr;
+    const du = u - WHEEL_AHEAD, dz = z1 - WHEEL_R;
+    const u2 = WHEEL_AHEAD + du * cq + dz * sq;
+    const z2 = WHEEL_R + dz * cq - du * sq;
+    return [h.x + shakeX + u2 * ca - v1 * sa, h.y + (u2 * sa + v1 * ca) * SQUASH - z2];
+  };
+  return { proj, ca, sa };
+}
+
+function hull(pts) {
+  const ps = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], hi = [];
+  for (const q of ps) {
+    while (lo.length > 1 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop();
+    lo.push(q);
+  }
+  for (let i = ps.length - 1; i >= 0; i--) {
+    const q = ps[i];
+    while (hi.length > 1 && cross(hi[hi.length - 2], hi[hi.length - 1], q) <= 0) hi.pop();
+    hi.push(q);
+  }
+  return lo.slice(0, -1).concat(hi.slice(0, -1));
+}
+
+function polyPath(ctx, pts) {
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+}
+
+function line3(ctx, proj, a, b) {
+  const [x0, y0] = proj(...a), [x1, y1] = proj(...b);
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1, y1);
+}
+
+function drawWheel(ctx, proj, phase, near) {
+  const ring = (v, r) => {
+    const pts = [];
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * TAU;
+      pts.push(proj(WHEEL_AHEAD + Math.cos(a) * r, v, WHEEL_R + Math.sin(a) * r));
+    }
+    return pts;
+  };
+  ctx.fillStyle = C.wheel;
+  ctx.beginPath();
+  polyPath(ctx, hull(ring(-2.6, WHEEL_R).concat(ring(2.6, WHEEL_R))));
+  ctx.fill();
+  // the hub face that looks towards us, with spokes that turn as it rolls
+  const face = 2.7 * near;
+  ctx.fillStyle = C.wheelHub;
+  ctx.beginPath();
+  polyPath(ctx, ring(face, WHEEL_R - 2.6));
+  ctx.fill();
+  ctx.strokeStyle = C.wheel;
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  for (let k = 0; k < 3; k++) {
+    const a = -phase * TAU + (k / 3) * Math.PI;
+    const r = WHEEL_R - 2.8;
+    line3(ctx, proj, [WHEEL_AHEAD + Math.cos(a) * r, face, WHEEL_R + Math.sin(a) * r],
+      [WHEEL_AHEAD - Math.cos(a) * r, face, WHEEL_R - Math.sin(a) * r]);
+  }
+  ctx.stroke();
+  const [cx, cy] = proj(WHEEL_AHEAD, face, WHEEL_R);
+  ctx.fillStyle = C.wheel;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 1.6, 0, TAU);
+  ctx.fill();
+}
+
 export function drawBarrow(ctx, game) {
   const p = game.player;
   const h = handsPoint(p);
   const b = barrowCenter(p);
-  const wp = wheelPoint(p);
-  S.shadow(ctx, b.x, b.y + 3, 26, 10);
+  S.shadow(ctx, b.x + Math.cos(p.ba) * 4, b.y + Math.sin(p.ba) * 3 + 2, 30, 11);
 
   const warning = Math.abs(p.roll) > ROLL_LIMIT * 0.6;
   const shakeX = warning ? rand(-1.2, 1.2) : 0;
+  const { proj, ca, sa } = barrowView(p, h, shakeX);
+  // which side of the barrow faces the camera
+  const near = ca >= 0 ? 1 : -1;
+  const wheelInFront = sa > 0.2;
 
-  ctx.save();
-  ctx.translate(h.x + shakeX, h.y - 8);
-  ctx.rotate(p.ba);
-  ctx.scale(1, 0.72);
-  ctx.rotate(p.roll * 0.3 + (p.tipT > 0 ? (0.4 - p.tipT) * 1.4 : 0));
-  // handles
-  ctx.strokeStyle = C.wood;
-  ctx.lineWidth = 5;
   ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // legs, then the handle rails running from the grips to the axle
+  ctx.strokeStyle = C.woodDark;
+  ctx.lineWidth = 2.6;
   ctx.beginPath();
-  ctx.moveTo(-8, -10); ctx.lineTo(16, -12);
-  ctx.moveTo(-8, 10); ctx.lineTo(16, 12);
+  for (const side of [-1, 1]) line3(ctx, proj, [19, 9.5 * side, 14], [22, 11.5 * side, 0]);
   ctx.stroke();
-  // tub
+  ctx.strokeStyle = C.wood;
+  ctx.lineWidth = 3.4;
+  ctx.beginPath();
+  for (const side of [-1, 1]) line3(ctx, proj, [-3, 10 * side, 15], [WHEEL_AHEAD, 3.6 * side, WHEEL_R]);
+  ctx.stroke();
+  // grips
+  ctx.strokeStyle = C.woodDark;
+  ctx.lineWidth = 4.2;
+  ctx.beginPath();
+  for (const side of [-1, 1]) line3(ctx, proj, [-4, 10.2 * side, 15.2], [3, 9.2 * side, 14.4]);
+  ctx.stroke();
+
+  if (!wheelInFront) drawWheel(ctx, proj, p.wheelPhase, near);
+
+  // the tub: outer shell, then the inside seen over the rolled rim
+  const rim = RIM.map(([u, v]) => proj(u, v, rimZ(u)));
+  const floor = FLOOR.map(([u, v]) => proj(u, v, FLOOR_Z));
+  const shell = hull(rim.concat(floor));
   ctx.fillStyle = C.barrowDark;
   ctx.beginPath();
-  ctx.moveTo(12, -14);
-  ctx.lineTo(54, -18);
-  ctx.quadraticCurveTo(62, 0, 54, 18);
-  ctx.lineTo(12, 14);
-  ctx.quadraticCurveTo(6, 0, 12, -14);
+  polyPath(ctx, shell);
   ctx.fill();
-  ctx.fillStyle = C.barrow;
-  ctx.beginPath();
-  ctx.moveTo(16, -10);
-  ctx.lineTo(50, -13);
-  ctx.quadraticCurveTo(56, 0, 50, 13);
-  ctx.lineTo(16, 10);
-  ctx.quadraticCurveTo(12, 0, 16, -10);
+  ctx.save();
+  S.blobPath(ctx, rim);
+  ctx.clip();
+  ctx.fillStyle = C.barrowInside;
   ctx.fill();
-  // apples heap
+  ctx.fillStyle = C.barrowFloor;
+  S.blobPath(ctx, floor);
+  ctx.fill();
+  // apples heap on the floor
   for (let i = 0; i < p.cargo.apples; i++) {
-    const ax = 24 + (i % 3) * 11, ay = -6 + Math.floor(i / 3) * 9 + (i % 2) * 3;
+    const [ax, ay] = proj(22 + (i % 3) * 8, -5 + Math.floor(i / 3) * 9 + (i % 2) * 2, FLOOR_Z + 3);
     ctx.fillStyle = C.apple;
     ctx.beginPath();
-    ctx.arc(ax, ay, 5, 0, TAU);
+    ctx.arc(ax, ay, 4.6, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255, 240, 220, 0.45)';
+    ctx.beginPath();
+    ctx.arc(ax - 1.5, ay - 1.6, 1.4, 0, TAU);
     ctx.fill();
   }
   ctx.restore();
-
-  // whatever else is riding along, drawn upright rather than in the tub's plane
-  p.cargo.items.forEach((it, i) => {
-    const s = seatPoint(p, p.cargo.kids.length + i);
-    drawCarriedItem(ctx, it, s.x - p.roll * 8, s.y + ITEMS[it.kind].carry, game.time);
-  });
-
-  // wheel with turning spokes
-  const wy = wp.y - 7;
-  ctx.fillStyle = C.wheel;
-  ctx.beginPath();
-  ctx.arc(wp.x, wy, 7, 0, TAU);
-  ctx.fill();
-  ctx.strokeStyle = C.wheelHub;
-  ctx.lineWidth = 1.8;
-  const sp = p.wheelPhase * TAU;
-  ctx.beginPath();
-  ctx.moveTo(wp.x + Math.cos(sp) * 5, wy + Math.sin(sp) * 5);
-  ctx.lineTo(wp.x - Math.cos(sp) * 5, wy - Math.sin(sp) * 5);
-  ctx.moveTo(wp.x - Math.sin(sp) * 5, wy + Math.cos(sp) * 5);
-  ctx.lineTo(wp.x + Math.sin(sp) * 5, wy - Math.cos(sp) * 5);
+  ctx.strokeStyle = C.barrowRim;
+  ctx.lineWidth = 2;
+  S.blobPath(ctx, rim);
   ctx.stroke();
 
-  // seated kids
+  // passengers sit down in the tub, so they go in before the near wall
+  const seat = (i) => proj(22 + i * 15, -p.roll * 6, FLOOR_Z);
+  p.cargo.items.forEach((it, i) => {
+    const [sx, sy] = seat(p.cargo.kids.length + i);
+    drawCarriedItem(ctx, it, sx, sy + ITEMS[it.kind].carry + 6, game.time);
+  });
   for (const kid of p.cargo.kids) {
-    const s = seatPoint(p, kid.seat);
+    const [sx, sy] = seat(kid.seat);
     const bounce = Math.abs(Math.sin(p.wheelPhase * TAU * 2)) * (p.v / (WALK * TROT_MUL)) * 3.5;
     const fast = p.v > WALK * 1.25;
-    drawSeatedKid(ctx, kid, s.x - p.roll * 9, s.y - 12 - bounce, fast);
+    drawSeatedKid(ctx, kid, sx, sy - 3 - bounce, fast);
   }
+
+  // the near wall and the near half of the rim go over anyone sitting inside
+  ctx.save();
+  const midY = rim.reduce((t, q) => t + q[1], 0) / rim.length;
+  ctx.beginPath();
+  ctx.rect(-1e4, midY, 2e4, 1e4);
+  ctx.clip();
+  ctx.fillStyle = C.barrowDark;
+  ctx.beginPath();
+  polyPath(ctx, shell);
+  S.blobPath(ctx, rim, false);
+  ctx.fill('evenodd');
+  ctx.fillStyle = C.barrow;
+  ctx.beginPath();
+  polyPath(ctx, hull(rim.concat(rim.map(([x, y]) => [x, y + 5]))));
+  S.blobPath(ctx, rim, false);
+  ctx.fill('evenodd');
+  ctx.strokeStyle = C.barrowRim;
+  ctx.lineWidth = 2;
+  S.blobPath(ctx, rim);
+  ctx.stroke();
+  ctx.restore();
+
+  if (wheelInFront) drawWheel(ctx, proj, p.wheelPhase, near);
 }
 
 function drawSeatedKid(ctx, kid, x, y, armsUp) {

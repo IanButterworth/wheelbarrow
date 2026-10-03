@@ -29,9 +29,13 @@ export const C = {
 
   barrow: '#7a9e9f',
   barrowDark: '#63888a',
+  barrowInside: '#4b6b6d',
+  barrowFloor: '#5d8183',
+  barrowRim: '#a7c4c2',
   wheel: '#5a5350',
   wheelHub: '#8f8781',
   wood: '#b58e63',
+  woodDark: '#94704b',
 
   parentSkin: '#f2c9a1',
   parentShirt: '#e0a458',

@@ -18,9 +18,9 @@ export function shadow(ctx, x, y, rx, ry = rx * 0.38) {
 
 // Smooth closed curve through points: the classic midpoint-quadratic trick.
 // Everything organic in the garden (beds, pond, mud) is drawn with this.
-export function blobPath(ctx, pts) {
+export function blobPath(ctx, pts, fresh = true) {
   const n = pts.length;
-  ctx.beginPath();
+  if (fresh) ctx.beginPath();
   let [px, py] = pts[n - 1];
   ctx.moveTo((px + pts[0][0]) / 2, (py + pts[0][1]) / 2);
   for (let i = 0; i < n; i++) {

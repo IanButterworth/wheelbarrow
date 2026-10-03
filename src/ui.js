@@ -1,6 +1,7 @@
 import { clamp, lerp, expDamp, TAU } from './utils.js';
 import { C } from './palette.js';
-import { FONT } from './sprites.js';
+import { FONT, hash, drawFlowerClump } from './sprites.js';
+import { drawBarrow, drawPlayer } from './player.js';
 import { taskText } from './tasks.js';
 import { KEY_LABELS, keyLabel, formatTime } from './save.js';
 
@@ -281,7 +282,7 @@ export function drawTouchControls(ctx, game) {
 // A sheet of the same note paper the to-do list is written on, centred on the
 // origin so callers own the transform. One horizontal crease: it has been
 // folded in a pocket and smoothed out again.
-function noteSheet(ctx, nw, nh) {
+function noteSheet(ctx, nw, nh, foldAt = 0.56) {
   const x = -nw / 2, y = -nh / 2;
   ctx.fillStyle = 'rgba(55, 70, 45, 0.22)';
   ctx.beginPath();
@@ -293,7 +294,7 @@ function noteSheet(ctx, nw, nh) {
   ctx.fill();
   // the crease, with the paper catching a little light just below it. It sits
   // in the gap under the title block, never across the lettering.
-  const fold = y + nh * 0.56;
+  const fold = y + nh * foldAt;
   const shade = ctx.createLinearGradient(0, fold - 16, 0, fold + 16);
   shade.addColorStop(0, 'rgba(120, 110, 88, 0)');
   shade.addColorStop(0.5, 'rgba(120, 110, 88, 0.13)');
@@ -313,40 +314,90 @@ function noteSheet(ctx, nw, nh) {
   ctx.stroke();
 }
 
-// biro sketch of the barrow, drawn about (0, 0), facing right
-function inkBarrow(ctx, s) {
+// A strip of sticky tape holding the note down, centred on (x, y).
+function tape(ctx, x, y, w, rot) {
   ctx.save();
-  ctx.scale(s, s);
-  ctx.strokeStyle = 'rgba(74, 67, 54, 0.75)';
-  ctx.lineWidth = 2.1;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.beginPath();          // tub
-  ctx.moveTo(-20, -9);
-  ctx.lineTo(13, -12);
-  ctx.lineTo(19, 3);
-  ctx.lineTo(-13, 5);
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.fillStyle = 'rgba(242, 222, 160, 0.72)';
+  ctx.beginPath();
+  // nicked ends, as if torn off the roll
+  ctx.moveTo(-w / 2, -9);
+  for (let k = 0; k <= 4; k++) ctx.lineTo(w / 2 - (k % 2) * 2, -9 + k * 4.5);
+  for (let k = 4; k >= 0; k--) ctx.lineTo(-w / 2 + (k % 2) * 2, -9 + k * 4.5);
   ctx.closePath();
-  ctx.stroke();
-  ctx.beginPath();          // handles and leg
-  ctx.moveTo(-19, -6); ctx.lineTo(-34, -1);
-  ctx.moveTo(-14, 3); ctx.lineTo(-30, 6);
-  ctx.moveTo(-11, 5); ctx.lineTo(-13, 13);
-  ctx.stroke();
-  ctx.beginPath();          // wheel
-  ctx.arc(13, 10, 7, 0, TAU);
-  ctx.stroke();
-  ctx.strokeStyle = 'rgba(90, 130, 70, 0.75)';   // a flower riding along in it
-  ctx.lineWidth = 1.8;
-  ctx.beginPath();
-  ctx.moveTo(0, -10);
-  ctx.quadraticCurveTo(2, -20, 6, -25);
-  ctx.stroke();
-  ctx.fillStyle = 'rgba(199, 125, 174, 0.8)';
-  ctx.beginPath();
-  ctx.arc(7, -27, 4, 0, TAU);
   ctx.fill();
   ctx.restore();
+}
+
+// a string of bunting from (x0, y0) to (x1, y1), sagging in the middle
+function bunting(ctx, x0, y0, x1, y1, sag, t) {
+  const cols = [C.poppyDress, C.flower3, C.alfieShirt, C.flower2, C.leaf];
+  const at = (f) => [lerp(x0, x1, f), lerp(y0, y1, f) + Math.sin(f * Math.PI) * sag];
+  ctx.strokeStyle = 'rgba(74, 67, 54, 0.55)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (let f = 0; f <= 1.0001; f += 0.05) {
+    const [x, y] = at(f);
+    if (f === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  const n = 11;
+  for (let k = 0; k < n; k++) {
+    const fa = (k + 0.2) / n, fb = (k + 0.8) / n;
+    const [ax, ay] = at(fa), [bx, by] = at(fb);
+    const sway = Math.sin(t * 1.7 + k * 1.3) * 1.6;
+    ctx.fillStyle = cols[k % cols.length];
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.lineTo((ax + bx) / 2 + sway, (ay + by) / 2 + 15);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+// Title lettering, one letter at a time with a slight hand-set wobble.
+function wobblyText(ctx, text, x, y, seed) {
+  const widths = [...text].map((ch) => ctx.measureText(ch).width);
+  const track = 1.5;
+  let cx = x - (widths.reduce((a, b) => a + b, 0) + track * (text.length - 1)) / 2;
+  [...text].forEach((ch, i) => {
+    const r = hash(seed + i * 7.3);
+    ctx.save();
+    ctx.translate(cx + widths[i] / 2, y + (r - 0.5) * 3.5);
+    ctx.rotate((hash(seed + i * 3.1) - 0.5) * 0.09);
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
+    cx += widths[i] + track;
+  });
+}
+
+// The parent wheeling a delighted child along a strip of lawn, drawn with the
+// same sprites as the game, on the spot.
+function titleScene(ctx, game, t) {
+  ctx.fillStyle = C.grass;
+  ctx.beginPath();
+  ctx.ellipse(0, 3, 108, 17, 0, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = C.grassStripe;
+  ctx.beginPath();
+  ctx.ellipse(8, 5, 82, 9, 0, 0, TAU);
+  ctx.fill();
+  drawFlowerClump(ctx, -84, 2, C.flower1, t, 3);
+  drawFlowerClump(ctx, 86, 0, C.flower4, t, 2);
+  drawFlowerClump(ctx, 68, 5, C.poppyDress, t, 2);
+
+  const kid = game.children[0];
+  const p = {
+    x: -48, y: 4, a: 0, ba: Math.sin(t * 1.3) * 0.03,
+    roll: Math.sin(t * 2.1) * 0.12, rollVel: 0, v: 60, tipT: 0,
+    wheelPhase: t * 0.9, bobT: t * 0.9,
+    cargo: { kids: kid ? [{ colors: kid.colors, seat: 0, flip: 1 }] : [], apples: 0, items: [] },
+  };
+  const g = { player: p, time: t };
+  drawPlayer(ctx, g);
+  drawBarrow(ctx, g);
 }
 
 export function drawPause(ctx, game, w, h) {
@@ -419,45 +470,58 @@ export function drawTitle(ctx, game, w, h) {
   ctx.fillStyle = vig;
   ctx.fillRect(0, 0, w, h);
 
-  const NW = 470, NH = 300;
-  const s = Math.min(1, (w - 76) / NW, (h - 60) / (NH * 1.25));
+  const NW = 500, NH = 384;
+  const s = Math.min(1, (w - 76) / NW, (h - 60) / (NH * 1.18));
   ctx.save();
-  ctx.translate(w / 2, h * 0.44);
+  ctx.translate(w / 2, h * 0.46);
   ctx.rotate(-0.018 + Math.sin(t * 0.55) * 0.007);   // paper and ink as one
   ctx.scale(s, s);
 
-  noteSheet(ctx, NW, NH);
+  noteSheet(ctx, NW, NH, 0.5);
+  tape(ctx, -NW / 2 + 26, -NH / 2 + 4, 62, -0.6);
+  tape(ctx, NW / 2 - 26, -NH / 2 + 4, 62, 0.6);
+  bunting(ctx, -NW / 2 + 46, -NH / 2 + 14, NW / 2 - 46, -NH / 2 + 14, 16, t);
 
-  // "untitled" sits at a slight angle, as though pencilled in above the title
+  // "untitled" is pencilled in above the title, with a caret where it goes
   ctx.textAlign = 'center';
   ctx.save();
-  ctx.translate(-6, -104);
-  ctx.rotate(-0.055);
-  ctx.fillStyle = 'rgba(74, 67, 54, 0.6)';
-  ctx.font = `24px ${FONT}`;
+  ctx.translate(-120, -122);
+  ctx.rotate(-0.07);
+  ctx.fillStyle = 'rgba(74, 67, 54, 0.62)';
+  ctx.font = `22px ${FONT}`;
   ctx.fillText('untitled', 0, 0);
+  ctx.strokeStyle = 'rgba(74, 67, 54, 0.5)';
+  ctx.lineWidth = 1.4;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-6, 17); ctx.lineTo(0, 9); ctx.lineTo(6, 17);
+  ctx.stroke();
   ctx.restore();
 
+  ctx.font = `bold 50px ${FONT}`;
+  ctx.fillStyle = 'rgba(61, 75, 51, 0.16)';
+  wobblyText(ctx, 'WHEELBARROW', 2, -50, 11);
+  wobblyText(ctx, 'GAME', 2, 0, 41);
   ctx.fillStyle = C.titleInk;
-  ctx.font = `bold 44px ${FONT}`;
-  ctx.fillText('WHEELBARROW', 0, -56);
-  ctx.fillText('GAME', 0, -10);
+  wobblyText(ctx, 'WHEELBARROW', 0, -54, 11);
+  wobblyText(ctx, 'GAME', 0, -4, 41);
 
   ctx.fillStyle = 'rgba(61, 75, 51, 0.72)';
   ctx.font = `16px ${FONT}`;
-  ctx.fillText('a lovely afternoon in the garden', 0, 46);
+  ctx.fillText('a lovely afternoon in the garden', 0, 40);
 
   ctx.save();
-  ctx.translate(0, 88);
-  ctx.rotate(0.05);
-  inkBarrow(ctx, 1.15);
+  ctx.translate(0, 130);
+  ctx.scale(1.45, 1.45);
+  titleScene(ctx, game, t);
   ctx.restore();
+  ctx.textAlign = 'center';
 
   const msg = game.input.lastSource === 'touch' ? 'tap to begin' : 'press any key to begin';
   ctx.globalAlpha = 0.5 + Math.sin(t * 2.6) * 0.3;
   ctx.fillStyle = 'rgba(74, 67, 54, 0.8)';
   ctx.font = `14px ${FONT}`;
-  ctx.fillText(msg, 0, 132);
+  ctx.fillText(msg, 0, 174);
   ctx.globalAlpha = 1;
   ctx.restore();
 
