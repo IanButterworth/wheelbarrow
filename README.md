@@ -20,7 +20,7 @@ with WebAudio.
 
 ## Play
 
-**[ianbutterworth.github.io/wheelbarrow](https://ianbutterworth.github.io/wheelbarrow/)**
+**[ianbtw.com/wheelbarrow](https://ianbtw.com/wheelbarrow/)**
 
 Works in any modern browser, on desktop or a phone. Sound starts on your first
 key press or tap.

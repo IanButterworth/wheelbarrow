@@ -1,0 +1,9 @@
+// Cloudflare Worker that serves the game as static files, so it can also be served from
+// ianbtw.com/wheelbarrow/. GitHub Pages keeps serving it from this repo too.
+{
+  "name": "wheelbarrow",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "."
+  }
+}
